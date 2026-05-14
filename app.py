@@ -42,7 +42,7 @@ def ejecutar_query(query, params=(), fetch=False):
 inicializar_db()
 
 st.sidebar.title("Navegación")
-opcion = st.sidebar.radio("Ir a:", ["🔍 Buscar Clienta", "Registrar Nueva Cita"])
+opcion = st.sidebar.radio("Ir a:", ["Buscar Clienta", "Registrar Nueva Cita"])
 
 if opcion == "Buscar Clienta":
     st.title("Expediente de Clientas")
@@ -66,7 +66,7 @@ if opcion == "Buscar Clienta":
                 st.write(f"**Atendida por:** {datos[4]}")
                 st.write(f"**Servicio:** {datos[5]}")
                 
-                st.subheader("🧪 Fórmula de Color")
+                st.subheader("Fórmula de Color")
                 st.info(datos[6] if datos[6] else "Sin fórmula registrada.")
                 
                 st.subheader("Observaciones")
