@@ -2,14 +2,21 @@ import streamlit as st
 import sqlite3
 from datetime import date
 import os
+import base64
+from PIL import Image
+import io
 
 st.set_page_config(layout="wide", page_title="Control Estética")
 
-if not os.path.exists("fotos"):
-    os.makedirs("fotos")
+# FUNCIÓN PARA CONVERTIR IMAGEN A TEXTO (Base64)
+def imagen_a_base64(imagen_archivo):
+    if imagen_archivo is not None:
+        bytes_data = imagen_archivo.getvalue()
+        return base64.b64encode(bytes_data).decode()
+    return None
 
+# GESTIÓN DE BASE DE DATOS
 def inicializar_db():
-    """Crea la tabla si no existe para evitar errores de 'no existe tal tabla'."""
     conn = sqlite3.connect('estetica.db')
     cursor = conn.cursor()
     cursor.execute("""
@@ -22,16 +29,20 @@ def inicializar_db():
             servicio TEXT,
             formula_tinte TEXT,
             observaciones TEXT,
-            foto_perfil TEXT
+            foto_perfil TEXT -- Aquí guardaremos el texto de la imagen
         )
     """)
     conn.commit()
     conn.close()
 
-def ejecutar_query(query, params=(), fetch=False):
+def ejecutar_query(query, params=(), fetch=False, fetchall=False):
     conn = sqlite3.connect('estetica.db')
     cursor = conn.cursor()
     cursor.execute(query, params)
+    if fetchall:
+        res = cursor.fetchall()
+        conn.close()
+        return res
     if fetch:
         res = cursor.fetchone()
         conn.close()
@@ -41,81 +52,47 @@ def ejecutar_query(query, params=(), fetch=False):
 
 inicializar_db()
 
+# INTERFAZ
 st.sidebar.title("Navegación")
-opcion = st.sidebar.radio("Ir a:", ["Buscar Clienta", "Registrar Nueva Cita"])
+opcion = st.sidebar.radio("Ir a:", ["Buscar Clienta", "Registrar Nueva Cita", "Ver Todos los Registros"])
 
 if opcion == "Buscar Clienta":
-    st.title("Expediente de Clientas")
-    nombre_buscado = st.text_input("Ingrese nombre de la clienta:")
-    
+    st.title("Expediente")
+    nombre_buscado = st.text_input("Nombre:")
     if nombre_buscado:
-        datos = ejecutar_query(
-            "SELECT * FROM HistorialEstetica WHERE nombre_clienta LIKE ? ORDER BY id_registro DESC", 
-            (f'%{nombre_buscado}%',), 
-            fetch=True
-        )
-        
+        datos = ejecutar_query("SELECT * FROM HistorialEstetica WHERE nombre_clienta LIKE ? ORDER BY id_registro DESC", (f'%{nombre_buscado}%',), fetch=True)
         if datos:
-            st.markdown("---")
             col_info, col_foto = st.columns([2, 1])
-            
             with col_info:
                 st.header(f"Ficha: {datos[1]}")
-                st.write(f"**Teléfono:** {datos[2]}")
-                st.write(f"**Última Cita:** {datos[3]}")
-                st.write(f"**Atendida por:** {datos[4]}")
-                st.write(f"**Servicio:** {datos[5]}")
-                
-                st.subheader("Fórmula de Color")
-                st.info(datos[6] if datos[6] else "Sin fórmula registrada.")
-                
-                st.subheader("Observaciones")
-                st.write(datos[7] if datos[7] else "Ninguna.")
-            
+                st.write(f"**Teléfono:** {datos[2]} | **Cita:** {datos[3]}")
+                st.info(f"Fórmula: {datos[6]}")
             with col_foto:
-                # Ajuste de 'use_column_width' para versiones estables
-                if datos[8] and os.path.exists(datos[8]):
-                    st.image(datos[8], caption="Foto del último servicio", use_column_width=True)
+                if datos[8]:
+                    st.image(f"data:image/png;base64,{datos[8]}", use_column_width=True)
                 else:
                     st.image("https://via.placeholder.com/300?text=Sin+Foto", use_column_width=True)
         else:
-            st.warning("No se encontró ningún registro.")
+            st.warning("No se encontró.")
 
 elif opcion == "Registrar Nueva Cita":
-    st.title("Nueva Entrada en Expediente")
-    
-    with st.form("registro_cita", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            nombre = st.text_input("Nombre de la Clienta *")
-            tel = st.text_input("Teléfono")
-            fecha = st.date_input("Fecha", date.today())
-        with col2:
-            estilista = st.text_input("Estilista responsable")
-            servicio = st.selectbox("Servicio", ["Corte", "Tinte/Color", "Peinado", "Tratamiento", "Otro"])
+    st.title("Nueva Cita")
+    with st.form("registro"):
+        nombre = st.text_input("Nombre *")
+        formula = st.text_area("Fórmula")
+        foto_archivo = st.file_uploader("Foto", type=["jpg", "png", "jpeg"])
+        enviado = st.form_submit_button("Guardar")
         
-        formula = st.text_area("Fórmula Química")
-        obs = st.text_area("Observaciones/Alergias")
-        foto_archivo = st.file_uploader("Capturar o subir foto", type=["jpg", "png", "jpeg"])
-        
-        enviado = st.form_submit_button("Guardar en Expediente")
+        if enviado and nombre:
+            string_foto = imagen_a_base64(foto_archivo)
+            ejecutar_query("INSERT INTO HistorialEstetica (nombre_clienta, formula_tinte, foto_perfil) VALUES (?,?,?)", 
+                           (nombre, formula, string_foto))
+            st.success("¡Guardado!")
 
-    if enviado:
-        if nombre:
-            ruta_foto = ""
-            if foto_archivo is not None:
-                nombre_archivo = f"{nombre.replace(' ', '_')}_{foto_archivo.name}"
-                ruta_foto = os.path.join("fotos", nombre_archivo)
-                with open(ruta_foto, "wb") as f:
-                    f.write(foto_archivo.getbuffer())
-            
-            ejecutar_query("""
-                INSERT INTO HistorialEstetica 
-                (nombre_clienta, telefono, fecha_cita, estilista, servicio, formula_tinte, observaciones, foto_perfil) 
-                VALUES (?,?,?,?,?,?,?,?)
-            """, (nombre, tel, str(fecha), estilista, servicio, formula, obs, ruta_foto))
-            
-            st.success(f"¡Expediente de {nombre} guardado!")
-            st.balloons()
-        else:
-            st.error("El nombre es obligatorio.")
+elif opcion == "Ver Todos los Registros":
+    st.title("Listado General")
+    todos = ejecutar_query("SELECT id_registro, nombre_clienta, fecha_cita, servicio FROM HistorialEstetica", fetchall=True)
+    if todos:
+        st.table(todos)
+    else:
+        st.write("No hay registros todavía.")
