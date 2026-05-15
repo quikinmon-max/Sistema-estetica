@@ -6,16 +6,16 @@ import base64
 from PIL import Image
 import io
 
-st.set_page_config(layout="wide", page_title="Control Estetica")
+st.set_page_config(layout="wide", page_title="Control Estetica Pro")
 
-#FUNCION PARA CONVERTIR IMAGEN A TEXTO (BASE64)
+# FUNCION PARA CONVERTIR IMAGEN A TEXTO (BASE64)
 def imagen_a_base64(imagen_archivo):
     if imagen_archivo is not None:
         bytes_data = imagen_archivo.getvalue()
         return base64.b64encode(bytes_data).decode()
     return None
 
-#GESTION DE BASE DE DATOS
+# GESTION DE BASE DE DATOS
 def inicializar_db():
     conn = sqlite3.connect('estetica.db')
     cursor = conn.cursor()
@@ -52,17 +52,28 @@ def ejecutar_query(query, params=(), fetch=False, fetchall=False):
 
 inicializar_db()
 
-#INTERFAZ Y NAVEGACION
+# INTERFAZ Y NAVEGACION
 st.sidebar.title("Navegacion")
 opcion = st.sidebar.radio("Ir a:", ["Buscar Clienta", "Registrar Nueva Cita", "Ver Todos los Registros"])
 
-#BUSCAR
+# --- BUSCAR CON FILTRO DOBLE ---
 if opcion == "Buscar Clienta":
     st.title("Expediente de Clientas")
-    nombre_buscado = st.text_input("Nombre de la clienta:")
     
-    if nombre_buscado:
-        datos = ejecutar_query("SELECT * FROM HistorialEstetica WHERE nombre_clienta LIKE ? ORDER BY id_registro DESC", (f'%{nombre_buscado}%',), fetch=True)
+    col_bus1, col_bus2 = st.columns(2)
+    with col_bus1:
+        nombre_buscado = st.text_input("Buscar por Nombre:")
+    with col_bus2:
+        tel_buscado = st.text_input("Buscar por Telefono:")
+    
+    if nombre_buscado or tel_buscado:
+        query = """
+            SELECT * FROM HistorialEstetica 
+            WHERE nombre_clienta LIKE ? AND telefono LIKE ? 
+            ORDER BY id_registro DESC
+        """
+        params = (f'%{nombre_buscado}%', f'%{tel_buscado}%')
+        datos = ejecutar_query(query, params, fetch=True)
         
         if datos:
             st.markdown("---")
@@ -83,19 +94,23 @@ if opcion == "Buscar Clienta":
                 else:
                     st.image("https://via.placeholder.com/300?text=Sin+Foto", use_column_width=True)
         else:
-            st.warning("No se encontro el registro.")
+            st.warning("No se encontro ningun registro que coincida.")
 
-#REGISTRAR
+# --- REGISTRAR ---
 elif opcion == "Registrar Nueva Cita":
     st.title("Nueva Entrada en Expediente")
     with st.form("registro", clear_on_submit=True):
-        nombre = st.text_input("Nombre (Obligatorio)")
-        tel = st.text_input("Telefono")
-        fecha = st.date_input("Fecha de Cita", date.today())
-        estilista = st.text_input("Estilista")
-        serv = st.selectbox("Servicio", ["Corte", "Tinte", "Peinado", "Efecto", "Retoque","B. color", "Tratamiento","Otro"])
+        col1, col2 = st.columns(2)
+        with col1:
+            nombre = st.text_input("Nombre de la Clienta (Obligatorio)")
+            tel = st.text_input("Telefono")
+            fecha = st.date_input("Fecha de Cita", date.today())
+        with col2:
+            estilista = st.text_input("Estilista")
+            serv = st.selectbox("Servicio", ["Corte", "Tinte", "Peinado", "Tratamiento", "Otro"])
+        
         formula = st.text_area("Formula Quimica")
-        obs = st.text_area("Observaciones")
+        obs = st.text_area("Observaciones o Alergias")
         foto_archivo = st.file_uploader("Foto del trabajo", type=["jpg", "png", "jpeg"])
         
         enviado = st.form_submit_button("Guardar Registro")
@@ -109,22 +124,18 @@ elif opcion == "Registrar Nueva Cita":
         elif enviado and not nombre:
             st.error("Error: El nombre es obligatorio.")
 
-#ADMINISTRACION Y RECORRIDO DE ID
+#--- ADMINISTRACION CON REORDENAMIENTO ---
 elif opcion == "Ver Todos los Registros":
     st.title("Listado General y Administracion")
-    todos = ejecutar_query("SELECT id_registro, nombre_clienta, fecha_cita, servicio FROM HistorialEstetica", fetchall=True)
+    todos = ejecutar_query("SELECT id_registro, nombre_clienta, telefono, fecha_cita FROM HistorialEstetica", fetchall=True)
     
     if todos:
         st.table(todos)
-        
         st.markdown("---")
-        st.subheader("Zona de Eliminacion y Reordenamiento")
-        st.write("Al eliminar un registro, los IDs se recorreran automaticamente para no dejar huecos.")
-        
+        st.subheader("Zona de Eliminacion")
         id_borrar = st.number_input("ID del registro a eliminar:", min_value=1, step=1)
         
-        if st.button("Eliminar y Reordenar Base de Datos"):
-
+        if st.button("Eliminar y Reordenar"):
             ejecutar_query("DELETE FROM HistorialEstetica WHERE id_registro = ?", (id_borrar,))
             ejecutar_query("UPDATE HistorialEstetica SET id_registro = id_registro - 1 WHERE id_registro > ?", (id_borrar,))
             
@@ -132,7 +143,7 @@ elif opcion == "Ver Todos los Registros":
             nuevo_conteo = max_id_res[0] if max_id_res[0] is not None else 0
             ejecutar_query("UPDATE sqlite_sequence SET seq = ? WHERE name = 'HistorialEstetica'", (nuevo_conteo,))
             
-            st.success(f"Registro {id_borrar} eliminado. La base de datos se ha reordenado.")
+            st.success(f"Registro {id_borrar} eliminado y base de datos reordenada.")
             st.rerun()
     else:
         st.write("No hay registros en la base de datos.")
