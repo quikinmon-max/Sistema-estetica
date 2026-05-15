@@ -107,7 +107,7 @@ elif opcion == "Registrar Nueva Cita":
             fecha = st.date_input("Fecha de Cita", date.today())
         with col2:
             estilista = st.text_input("Estilista")
-            serv = st.selectbox("Servicio", ["Corte", "Tinte", "Peinado", "Tratamiento", "Otro"])
+            serv = st.selectbox("Servicio", ["Corte", "Tinte", "Peinado", "Tratamiento", "B.Color", "Efecto", "Retoque", "C.Global", "Otro"])
         
         formula = st.text_area("Formula Quimica")
         obs = st.text_area("Observaciones o Alergias")
