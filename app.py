@@ -93,7 +93,7 @@ elif opcion == "Registrar Nueva Cita":
         tel = st.text_input("Telefono")
         fecha = st.date_input("Fecha de Cita", date.today())
         estilista = st.text_input("Estilista")
-        serv = st.selectbox("Servicio", ["Corte", "Tinte", "Peinado", "Otro"])
+        serv = st.selectbox("Servicio", ["Corte", "Tinte", "Peinado", "Efecto", "Retoque","B. color", "Tratamiento","Otro"])
         formula = st.text_area("Formula Quimica")
         obs = st.text_area("Observaciones")
         foto_archivo = st.file_uploader("Foto del trabajo", type=["jpg", "png", "jpeg"])
