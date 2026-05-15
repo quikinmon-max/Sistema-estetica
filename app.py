@@ -14,7 +14,7 @@ def imagen_a_base64(imagen_archivo):
         return base64.b64encode(bytes_data).decode()
     return None
 
-# GESTION DE BASE DE DATOS (SISTEMA DE DOS TABLAS)
+# GESTION DE BASE DE DATOS (DOS TABLAS RELACIONADAS)
 def inicializar_db():
     conn = sqlite3.connect('estetica_pro.db')
     cursor = conn.cursor()
@@ -41,10 +41,15 @@ def inicializar_db():
     conn.commit()
     conn.close()
 
-def ejecutar_query(query, params=(), fetch=False, fetchall=False):
+def ejecutar_query(query, params=(), fetch=False, fetchall=False, return_id=False):
     conn = sqlite3.connect('estetica_pro.db')
     cursor = conn.cursor()
     cursor.execute(query, params)
+    if return_id:
+        last_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return last_id
     if fetchall:
         res = cursor.fetchall()
         conn.close()
@@ -60,16 +65,16 @@ inicializar_db()
 
 # NAVEGACION
 st.sidebar.title("Navegacion")
-opcion = st.sidebar.radio("Ir a:", ["Buscar y Ver Historial", "Registrar Visita", "Lista de Clientes"])
+opcion = st.sidebar.radio("Ir a:", ["Buscar y Ver Historial", "Registrar Visita", "Administrar Sistema"])
 
 # --- BUSCAR Y VER HISTORIAL ---
 if opcion == "Buscar y Ver Historial":
-    st.title("Expediente Unificado")
+    st.title("Expediente de Clientas")
     
-    col_b1, col_b2 = st.columns(2)
-    with col_b1:
+    c1, c2 = st.columns(2)
+    with c1:
         nom_b = st.text_input("Buscar por Nombre:")
-    with col_b2:
+    with c2:
         tel_b = st.text_input("Buscar por Telefono:")
 
     if nom_b or tel_b:
@@ -77,15 +82,15 @@ if opcion == "Buscar y Ver Historial":
         
         if cliente:
             st.markdown("---")
-            c_perfil, c_foto = st.columns([2, 1])
-            with c_perfil:
+            col_info, col_foto = st.columns([2, 1])
+            with col_info:
                 st.header(f"Clienta: {cliente[1]}")
                 st.write(f"Telefono: {cliente[2]}")
-            with c_foto:
+            with col_foto:
                 if cliente[3]:
-                    st.image(f"data:image/png;base64,{cliente[3]}", width=200)
+                    st.image(f"data:image/png;base64,{cliente[3]}", width=300)
                 else:
-                    st.image("https://via.placeholder.com/200?text=Sin+Foto")
+                    st.image("https://via.placeholder.com/300?text=Sin+Foto")
 
             st.subheader("Historial de Visitas")
             visitas = ejecutar_query("SELECT fecha, servicio, formula, observaciones, estilista FROM Visitas WHERE id_cliente = ? ORDER BY fecha DESC", (cliente[0],), fetchall=True)
@@ -97,11 +102,11 @@ if opcion == "Buscar y Ver Historial":
                         st.info(f"Formula: {v[2]}")
                         st.write(f"Observaciones: {v[3]}")
             else:
-                st.write("Esta clienta aun no tiene visitas registradas.")
+                st.write("Aun no hay visitas en el historial.")
         else:
-            st.warning("No se encontro ninguna clienta con esos datos.")
+            st.warning("No se encontro a la clienta.")
 
-# --- REGISTRAR VISITA (CON LA LINEA NUEVA) ---
+# --- REGISTRAR VISITA (Logica para no duplicar y guardar todo) ---
 elif opcion == "Registrar Visita":
     st.title("Registrar Nueva Visita")
     
@@ -109,46 +114,50 @@ elif opcion == "Registrar Visita":
     telefono = st.text_input("Telefono (Obligatorio)")
     existe = ejecutar_query("SELECT id_cliente, foto_perfil FROM Clientes WHERE nombre = ? AND telefono = ?", (nombre, telefono), fetch=True)
     
-    with st.form("form_visita", clear_on_submit=True):
+    with st.form("form_registro", clear_on_submit=True):
         if not existe:
-            st.info("Nueva clienta detectada. Por favor sube una foto de perfil.")
-            foto_nueva = st.file_uploader("Foto de Perfil", type=["jpg", "png", "jpeg"])
+            st.info("Nueva clienta: Sube una foto para su expediente permanente.")
+            foto_up = st.file_uploader("Foto de Perfil", type=["jpg", "png", "jpeg"])
         else:
-            st.success("Clienta reconocida. No es necesario subir la foto de nuevo.")
-            foto_nueva = None
+            st.success("Clienta reconocida: Se añadira el servicio a su historial actual.")
+            foto_up = None
 
-        col1, col2 = st.columns(2)
-        with col1:
-            fecha = st.date_input("Fecha de la visita", date.today())
-            estilista = st.text_input("Estilista que atendio")
-        with col2:
+        col_a, col_b = st.columns(2)
+        with col_a:
+            fecha = st.date_input("Fecha", date.today())
+            estilista = st.text_input("Estilista")
+        with col_b:
             serv = st.selectbox("Servicio", ["Corte", "Tinte", "Peinado", "Tratamiento", "B.Color", "Efecto", "Retoque", "C.Global", "Otro"])
         
-        formula = st.text_area("Formula aplicada")
-        obs = st.text_area("Observaciones adicionales")
+        formula = st.text_area("Formula")
+        obs = st.text_area("Observaciones")
         
-        guardar = st.form_submit_button("Guardar en Historial")
+        btn_guardar = st.form_submit_button("Guardar en Expediente")
         
-        if guardar and nombre and telefono:
+        if btn_guardar and nombre and telefono:
             if not existe:
-                img_b64 = imagen_a_base64(foto_nueva)
-                ejecutar_query("INSERT INTO Clientes (nombre, telefono, foto_perfil) VALUES (?,?,?)", (nombre, telefono, img_b64))
-                id_c = ejecutar_query("SELECT last_insert_rowid()", fetch=True)[0]
+                img_str = imagen_a_base64(foto_up)
+                id_c = ejecutar_query("INSERT INTO Clientes (nombre, telefono, foto_perfil) VALUES (?,?,?)", (nombre, telefono, img_str), return_id=True)
             else:
                 id_c = existe[0]
             
             ejecutar_query("""INSERT INTO Visitas (id_cliente, fecha, estilista, servicio, formula, observaciones) 
                            VALUES (?,?,?,?,?,?)""", (id_c, str(fecha), estilista, serv, formula, obs))
-            st.success("La visita se ha guardado correctamente en el expediente.")
-        elif guardar:
-            st.error("El nombre y el telefono son obligatorios para el registro.")
+            
+            st.success("Registro completado con exito.")
+        elif btn_guardar:
+            st.error("Nombre y Telefono son obligatorios.")
 
-# --- LISTA DE CLIENTES ---
-elif opcion == "Lista de Clientes":
-    st.title("Directorio General")
+# --- ADMINISTRACION ---
+elif opcion == "Administrar Sistema":
+    st.title("Panel de Administracion")
     clientes = ejecutar_query("SELECT id_cliente, nombre, telefono FROM Clientes", fetchall=True)
     if clientes:
-        st.write("Esta es la lista de clientas unicas registradas:")
         st.table(clientes)
-    else:
-        st.write("Aun no hay clientas registradas en el sistema.")
+        st.markdown("---")
+        id_borrar = st.number_input("ID de clienta para borrar (Borrara tambien su historial):", min_value=1, step=1)
+        if st.button("Eliminar Permanentemente"):
+            ejecutar_query("DELETE FROM Visitas WHERE id_cliente = ?", (id_borrar,))
+            ejecutar_query("DELETE FROM Clientes WHERE id_cliente = ?", (id_borrar,))
+            st.success("Expediente eliminado.")
+            st.rerun()
