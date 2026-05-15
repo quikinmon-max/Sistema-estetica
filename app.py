@@ -14,10 +14,11 @@ def imagen_a_base64(imagen_archivo):
         return base64.b64encode(bytes_data).decode()
     return None
 
-# GESTION DE BASE DE DATOS (DOS TABLAS RELACIONADAS)
+# GESTION DE BASE DE DATOS
 def inicializar_db():
     conn = sqlite3.connect('estetica_pro.db')
     cursor = conn.cursor()
+    # TABLA DE CLIENTAS
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS Clientes (
             id_cliente INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,6 +27,7 @@ def inicializar_db():
             foto_perfil TEXT
         )
     """)
+    # TABLA DE VISITAS
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS Visitas (
             id_visita INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +69,7 @@ inicializar_db()
 st.sidebar.title("Navegacion")
 opcion = st.sidebar.radio("Ir a:", ["Buscar y Ver Historial", "Registrar Visita", "Administrar Sistema"])
 
-# --- BUSCAR Y VER HISTORIAL ---
+# --- BUSCAR Y VER HISTORIAL (ORDEN ANTIGUO A NUEVO) ---
 if opcion == "Buscar y Ver Historial":
     st.title("Expediente de Clientas")
     
@@ -93,7 +95,7 @@ if opcion == "Buscar y Ver Historial":
                     st.image("https://via.placeholder.com/300?text=Sin+Foto")
 
             st.subheader("Historial de Visitas")
-            visitas = ejecutar_query("SELECT fecha, servicio, formula, observaciones, estilista FROM Visitas WHERE id_cliente = ? ORDER BY fecha DESC", (cliente[0],), fetchall=True)
+            visitas = ejecutar_query("SELECT fecha, servicio, formula, observaciones, estilista FROM Visitas WHERE id_cliente = ? ORDER BY fecha ASC", (cliente[0],), fetchall=True)
             
             if visitas:
                 for v in visitas:
@@ -102,24 +104,24 @@ if opcion == "Buscar y Ver Historial":
                         st.info(f"Formula: {v[2]}")
                         st.write(f"Observaciones: {v[3]}")
             else:
-                st.write("Aun no hay visitas en el historial.")
+                st.write("Aun no hay visitas registradas.")
         else:
             st.warning("No se encontro a la clienta.")
 
-# --- REGISTRAR VISITA (Logica para no duplicar y guardar todo) ---
+# --- REGISTRAR VISITA ---
 elif opcion == "Registrar Visita":
     st.title("Registrar Nueva Visita")
-    
     nombre = st.text_input("Nombre de la Clienta (Obligatorio)")
     telefono = st.text_input("Telefono (Obligatorio)")
+    
     existe = ejecutar_query("SELECT id_cliente, foto_perfil FROM Clientes WHERE nombre = ? AND telefono = ?", (nombre, telefono), fetch=True)
     
     with st.form("form_registro", clear_on_submit=True):
         if not existe:
-            st.info("Nueva clienta: Sube una foto para su expediente permanente.")
+            st.info("Nueva clienta detectada.")
             foto_up = st.file_uploader("Foto de Perfil", type=["jpg", "png", "jpeg"])
         else:
-            st.success("Clienta reconocida: Se añadira el servicio a su historial actual.")
+            st.success("Clienta reconocida.")
             foto_up = None
 
         col_a, col_b = st.columns(2)
@@ -143,21 +145,30 @@ elif opcion == "Registrar Visita":
             
             ejecutar_query("""INSERT INTO Visitas (id_cliente, fecha, estilista, servicio, formula, observaciones) 
                            VALUES (?,?,?,?,?,?)""", (id_c, str(fecha), estilista, serv, formula, obs))
-            
             st.success("Registro completado con exito.")
-        elif btn_guardar:
-            st.error("Nombre y Telefono son obligatorios.")
 
 # --- ADMINISTRACION ---
 elif opcion == "Administrar Sistema":
     st.title("Panel de Administracion")
     clientes = ejecutar_query("SELECT id_cliente, nombre, telefono FROM Clientes", fetchall=True)
     if clientes:
+        st.write("Lista de clientas activas:")
         st.table(clientes)
         st.markdown("---")
-        id_borrar = st.number_input("ID de clienta para borrar (Borrara tambien su historial):", min_value=1, step=1)
+        id_borrar = st.number_input("ID de clienta para borrar (Se reordenaran los IDs):", min_value=1, step=1)
+        
         if st.button("Eliminar Permanentemente"):
+
             ejecutar_query("DELETE FROM Visitas WHERE id_cliente = ?", (id_borrar,))
             ejecutar_query("DELETE FROM Clientes WHERE id_cliente = ?", (id_borrar,))
-            st.success("Expediente eliminado.")
+            ejecutar_query("UPDATE Visitas SET id_cliente = id_cliente - 1 WHERE id_cliente > ?", (id_borrar,))
+            ejecutar_query("UPDATE Clientes SET id_cliente = id_cliente - 1 WHERE id_cliente > ?", (id_borrar,))
+            
+            max_id_res = ejecutar_query("SELECT MAX(id_cliente) FROM Clientes", fetch=True)
+            nuevo_conteo = max_id_res[0] if max_id_res[0] is not None else 0
+            ejecutar_query("UPDATE sqlite_sequence SET seq = ? WHERE name = 'Clientes'", (nuevo_conteo,))
+            
+            st.success(f"Clienta con ID {id_borrar} eliminada. Los IDs se han reajustado.")
             st.rerun()
+    else:
+        st.write("No hay clientas en el sistema.")
