@@ -9,8 +9,8 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # Configuración única de página combinando tu diseño
-st.set_page_config(layout="wide", page_title="Aesthetics Manager Pro", page_icon="✂️")
-st.set_page_config(layout="wide", page_title="Aestetic Manager Pro")
+st.set_page_config(layout="wide", page_title="Aesthetic Manager Pro", page_icon="✂️")
+st.set_page_config(layout="wide", page_title="Aesthetic Pro")
 
 # 1. 🔑 FUNCIÓN ENCRIPTA CONTRASEÑAS (SHA-256)
 def encriptar_pass(password):
@@ -223,7 +223,6 @@ else:
                 col_a, col_b = st.columns(2)
                 with col_a:
                     fecha = st.date_input("📅 Fecha", date.today())
-                    # Si es empleada se bloquea el input y se inyecta su propio usuario de forma transparente
                     if rol_usuario == "empleado":
                         estilista = st.text_input("💇‍♀️ Estilista:", value=st.session_state['usuario_login'], disabled=True)
                     else:
@@ -269,36 +268,50 @@ else:
         else:
             st.write("💡 Ingresa el nombre de la clienta para cargar la interfaz de registro.")
 
-    # --- ⚙️ SECCIÓN 3: ADMINISTRACIÓN SEGURA (TENANT LEVEL CON GESTIÓN DE EMPLEADAS ILIMITADAS N) ---
+    # --- ⚙️ SECCIÓN 3: ADMINISTRACIÓN SEGURA (TENANT LEVEL) ---
     elif opcion == "⚙️ Administrar Sistema" and rol_usuario == "administrador":
         st.title("⚙️ Consola de Administración Privada")
         st.write(f"Espacio corporativo de: **{st.session_state['nombre_negocio']}**")
         
         tab_usuarios, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "📥 Copias de Respaldo", "🚨 Zona de Baja"])
         
-        # --- SUB-TAB 1: CONTROL DE EMPLEADAS (REGISTRO N) ---
+        # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS Y RESTABLECIMIENTO DE CLAVES ---
         with tab_usuarios:
-            st.subheader("🏗️ Registrar Nueva Trabajadora / Estilista")
-            st.write("Crea accesos individuales ilimitados para tu personal vinculados a tu tenant.")
+            st.subheader("🏗️ Registrar o Actualizar Contraseña de Trabajadora")
+            st.info("💡 **Tip de Soporte:** Si una empleada olvida su contraseña, escribe su mismo usuario aquí arriba junto con una contraseña nueva. El sistema la actualizará de inmediato sin borrar sus datos.")
             
             with st.form("form_alta_empleado", clear_on_submit=True):
-                nom_usuario_emp = st.text_input("Crea el Usuario de la empleada (sin espacios):").strip().lower()
-                pass_usuario_emp = st.text_input("Crea su Contraseña Temporal:", type="password")
+                nom_usuario_emp = st.text_input("Usuario de la empleada (ej: marta_nails):").strip().lower()
+                pass_usuario_emp = st.text_input("Nueva Contraseña / Contraseña Temporal:", type="password")
                 
-                if st.form_submit_button("➕ Registrar Cuenta de Empleada"):
-                    if usuarios_col.find_one({"usuario": nom_usuario_emp}):
-                        st.error("❌ Este nombre de usuario ya existe en el sistema global. Elige otro.")
-                    elif nom_usuario_emp and pass_usuario_emp:
-                        usuarios_col.insert_one({
-                            "negocio": st.session_state['nombre_negocio'],
-                            "usuario": nom_usuario_emp,
-                            "password": encriptar_pass(pass_usuario_emp),
-                            "rol": "empleado", 
-                            "tenant_id": tenant_id # Se amarra en automático al negocio del administrador
-                        })
-                        st.success(f"✅ ¡Cuenta de empleada para '**{nom_usuario_emp}**' creada exitosamente!")
+                if st.form_submit_button("💾 Guardar / Actualizar Cuenta"):
+                    if nom_usuario_emp and pass_usuario_emp:
+                        # Buscamos si ya existe el usuario de forma global
+                        usuario_existente = usuarios_col.find_one({"usuario": nom_usuario_emp})
+                        
+                        if usuario_existente:
+                            # Verificamos si pertenece a este mismo local (tenant_id)
+                            if usuario_existente["tenant_id"] == tenant_id:
+                                # Sobreescribimos la contraseña vieja con la nueva encriptada
+                                usuarios_col.update_one(
+                                    {"_id": usuario_existente["_id"]},
+                                    {"$set": {"password": encriptar_pass(pass_usuario_emp)}}
+                                )
+                                st.success(f"🔄 ¡Contraseña de '**{nom_usuario_emp}**' restablecida con éxito!")
+                            else:
+                                st.error("❌ Este usuario le pertenece a otra sucursal externa. Elige un nombre diferente.")
+                        else:
+                            # Si no existe, es un registro nuevo común y corriente
+                            usuarios_col.insert_one({
+                                "negocio": st.session_state['nombre_negocio'],
+                                "usuario": nom_usuario_emp,
+                                "password": encriptar_pass(pass_usuario_emp),
+                                "rol": "empleado", 
+                                "tenant_id": tenant_id
+                            })
+                            st.success(f"✅ ¡Cuenta de empleada para '**{nom_usuario_emp}**' creada exitosamente!")
                     else:
-                        st.warning("⚠️ Completa los campos del formulario.")
+                        st.warning("⚠️ Completa ambos campos para procesar el registro.")
             
             st.markdown("---")
             st.subheader("👥 Plantilla de Empleados en tu Sucursal")
