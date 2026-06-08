@@ -8,9 +8,8 @@ import hashlib
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
-# Configuración única de página combinando tu diseño
+# Configuración única de página combinando tu diseño definitivo
 st.set_page_config(layout="wide", page_title="Aesthetic Manager Pro", page_icon="✂️")
-st.set_page_config(layout="wide", page_title="Aesthetic Pro")
 
 # 1. 🔑 FUNCIÓN ENCRIPTA CONTRASEÑAS (SHA-256)
 def encriptar_pass(password):
@@ -96,8 +95,8 @@ if st.session_state['usuario_id'] is None:
                     st.session_state['usuario_id'] = str(user_db["_id"])
                     st.session_state['nombre_negocio'] = user_db["negocio"]
                     st.session_state['usuario_login'] = user_db["usuario"]
-                    st.session_state['rol'] = user_db.get("rol", "empleado") # Si no está definido, hereda rol de empleada
-                    st.session_state['tenant_id'] = user_db["tenant_id"] # Identificador del local
+                    st.session_state['rol'] = user_db.get("rol", "empleado")
+                    st.session_state['tenant_id'] = user_db["tenant_id"]
                     st.session_state['logo'] = user_db.get("logo", None)
                     st.session_state['fondo'] = user_db.get("fondo", "#0d0d0d")
                     st.success("¡Acceso concedido! Cargando panel... 🎉")
@@ -123,7 +122,7 @@ if st.session_state['usuario_id'] is None:
                         "negocio": nuevo_negocio,
                         "usuario": nuevo_usuario,
                         "password": encriptar_pass(nueva_pass),
-                        "rol": "administrador", # Cuenta Maestra inicial
+                        "rol": "administrador",
                         "tenant_id": str(nuevo_id),
                         "logo": None,
                         "fondo": "#0d0d0d"
@@ -139,11 +138,10 @@ else:
     tenant_id = st.session_state['tenant_id']
     rol_usuario = st.session_state['rol']
 
-    # Menú Lateral Personalizado con tu título corporativo
+    # Menú Lateral Personalizado
     st.sidebar.title(f"👑 {st.session_state['nombre_negocio']}")
     st.sidebar.write(f"👤 Conectado: **{st.session_state['usuario_login']}** ({rol_usuario.upper()})")
     
-    # Restricción de navegación adaptativa: Las empleadas no ven el panel de administración
     opciones_menu = ["🔍 Buscar y Ver Historial", "📝 Registrar Visita"]
     if rol_usuario == "administrador":
         opciones_menu.append("⚙️ Administrar Sistema")
@@ -275,7 +273,7 @@ else:
         
         tab_usuarios, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "📥 Copias de Respaldo", "🚨 Zona de Baja"])
         
-        # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS Y RESTABLECIMIENTO DE CLAVES ---
+        # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS (ALTA, RESETEO Y ELIMINACIÓN) ---
         with tab_usuarios:
             st.subheader("🏗️ Registrar o Actualizar Contraseña de Trabajadora")
             st.info("💡 **Tip de Soporte:** Si una empleada olvida su contraseña, escribe su mismo usuario aquí arriba junto con una contraseña nueva. El sistema la actualizará de inmediato sin borrar sus datos.")
@@ -286,13 +284,10 @@ else:
                 
                 if st.form_submit_button("💾 Guardar / Actualizar Cuenta"):
                     if nom_usuario_emp and pass_usuario_emp:
-                        # Buscamos si ya existe el usuario de forma global
                         usuario_existente = usuarios_col.find_one({"usuario": nom_usuario_emp})
                         
                         if usuario_existente:
-                            # Verificamos si pertenece a este mismo local (tenant_id)
                             if usuario_existente["tenant_id"] == tenant_id:
-                                # Sobreescribimos la contraseña vieja con la nueva encriptada
                                 usuarios_col.update_one(
                                     {"_id": usuario_existente["_id"]},
                                     {"$set": {"password": encriptar_pass(pass_usuario_emp)}}
@@ -301,7 +296,6 @@ else:
                             else:
                                 st.error("❌ Este usuario le pertenece a otra sucursal externa. Elige un nombre diferente.")
                         else:
-                            # Si no existe, es un registro nuevo común y corriente
                             usuarios_col.insert_one({
                                 "negocio": st.session_state['nombre_negocio'],
                                 "usuario": nom_usuario_emp,
@@ -319,11 +313,43 @@ else:
             if lista_empleados:
                 tabla_emp = []
                 for emp in lista_empleados:
-                    tabla_emp.append({
-                        "Usuario": emp["usuario"],
-                        "Rango de Acceso": emp.get("rol", "empleado").upper()
-                    })
-                st.table(pd.DataFrame(tabla_emp))
+                    # Ocultamos la cuenta maestra del Administrador para evitar accidentes
+                    if emp.get("rol") != "administrador":
+                        tabla_emp.append({
+                            "👤 Usuario": emp["usuario"],
+                            "🛡️ Rango de Acceso": emp.get("rol", "empleado").upper()
+                        })
+                
+                if tabla_emp:
+                    st.table(pd.DataFrame(tabla_emp))
+                    
+                    # --- FORMULARIO INTEGRADO DE ELIMINACIÓN DE PERSONAL ---
+                    st.markdown("---")
+                    st.subheader("🚨 Dar de Baja a una Empleada")
+                    st.write("Escribe el nombre de usuario exacto de la trabajadora para remover sus credenciales de acceso.")
+                    
+                    with st.form("form_baja_empleado", clear_on_submit=True):
+                        usuario_eliminar = st.text_input("👤 Usuario a eliminar:").strip().lower()
+                        if st.form_submit_button("🗑️ Eliminar Trabajadora del Sistema"):
+                            if usuario_eliminar:
+                                # Filtro de seguridad estricto para evitar ataques cross-tenant
+                                emp_verificar = usuarios_col.find_one({"usuario": usuario_eliminar, "tenant_id": tenant_id})
+                                
+                                if emp_verificar:
+                                    if emp_verificar.get("rol") == "administrador":
+                                        st.error("🛑 Error de seguridad: No puedes eliminar cuentas con rango de Administrador Maestro.")
+                                    else:
+                                        usuarios_col.delete_one({"_id": emp_verificar["_id"]})
+                                        st.success(f"💥 Acceso revocado. El usuario '**{usuario_eliminar}**' fue borrado del servidor.")
+                                        st.rerun()
+                                else:
+                                    st.error("❌ El usuario ingresado no pertenece a tu plantilla de sucursal.")
+                            else:
+                                st.warning("⚠️ Ingresa el nombre de usuario de la empleada que deseas remover.")
+                else:
+                    st.info("ℹ️ Tu plantilla no cuenta con empleadas registradas actualmente.")
+            else:
+                st.info("ℹ️ No hay personal registrado.")
 
         # --- SUB-TAB 2: RESPALDOS CLOUD ---
         with tab_datos:
