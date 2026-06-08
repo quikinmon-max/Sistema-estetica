@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import date
+from datetime import date, datetime
 import base64
 from PIL import Image
 import io
@@ -79,7 +79,7 @@ if st.session_state['usuario_id'] is None:
     
     tab_login, tab_registro = st.tabs(["👤 Iniciar Sesión", "🏢 Registrar Mi Negocio"])
     
-    # --- PESTAÑA 1: INICIAR SESIÓN ---
+    # --- PESTAÑA 1: INICIAR SESIÓN (CON FILTRO DE HORARIO CORREGIDO) ---
     with tab_login:
         with st.form("form_login"):
             usuario_login = st.text_input("Usuario:").strip().lower()
@@ -92,11 +92,36 @@ if st.session_state['usuario_id'] is None:
                 })
                 
                 if user_db:
+                    rol = user_db.get("rol", "empleado")
+                    tenant_id_actual = user_db["tenant_id"]
+                    
+                    # 🕒 VALIDACIÓN DE HORARIO PARA EMPLEADAS (Formato de Tiempo Nativo)
+                    if rol == "empleado":
+                        admin_negocio = usuarios_col.find_one({"_id": ObjectId(tenant_id_actual), "rol": "administrador"})
+                        
+                        if admin_negocio:
+                            try:
+                                h_apertura_str = admin_negocio.get("hora_apertura", "09:00")
+                                h_cierre_str = admin_negocio.get("hora_cierre", "20:00")
+                                
+                                # Convertimos strings y hora actual a objetos datetime.time para comparar sin errores
+                                hora_apertura = datetime.strptime(h_apertura_str, "%H:%M").time()
+                                hora_cierre = datetime.strptime(h_cierre_str, "%H:%M").time()
+                                hora_actual = datetime.now().time()
+                                
+                                if not (hora_apertura <= hora_actual <= hora_cierre):
+                                    st.error(f"🛑 Acceso Denegado: El horario de acceso para empleadas en este salón es de {h_apertura_str} a {h_cierre_str}. Fuera de este horario el sistema permanece cerrado por seguridad.")
+                                    st.stop()
+                            except Exception as time_err:
+                                st.error(f"⚠️ Error al verificar el formato de horario del salón: {time_err}. Contacta al administrador.")
+                                st.stop()
+                    
+                    # Si pasa la validación o es Admin, se guardan los datos en sesión
                     st.session_state['usuario_id'] = str(user_db["_id"])
                     st.session_state['nombre_negocio'] = user_db["negocio"]
                     st.session_state['usuario_login'] = user_db["usuario"]
-                    st.session_state['rol'] = user_db.get("rol", "empleado")
-                    st.session_state['tenant_id'] = user_db["tenant_id"]
+                    st.session_state['rol'] = rol
+                    st.session_state['tenant_id'] = tenant_id_actual
                     st.session_state['logo'] = user_db.get("logo", None)
                     st.session_state['fondo'] = user_db.get("fondo", "#0d0d0d")
                     st.success("¡Acceso concedido! Cargando panel... 🎉")
@@ -112,10 +137,22 @@ if st.session_state['usuario_id'] is None:
             nuevo_usuario = st.text_input("Crea un Usuario de Administrador (sin espacios) *").strip().lower()
             nueva_pass = st.text_input("Crea una Contraseña Segura *", type="password")
             
+            st.markdown("🕒 **Configuración de Seguridad de Horarios Laborales:**")
+            h_apertura = st.text_input("Hora de Apertura (Formato 24h ej: 09:00)", value="09:00")
+            h_cierre = st.text_input("Hora de Cierre (Formato 24h ej: 20:00)", value="20:00")
+            
             if st.form_submit_button("Agregar Negocio"):
                 if usuarios_col.find_one({"usuario": nuevo_usuario}):
                     st.error("❌ Ese nombre de usuario ya está registrado por otra estética. Intenta con otro.")
                 elif nuevo_negocio and nuevo_usuario and nueva_pass:
+                    # Validación rápida de formato de hora antes de guardar
+                    try:
+                        datetime.strptime(h_apertura, "%H:%M")
+                        datetime.strptime(h_cierre, "%H:%M")
+                    except ValueError:
+                        st.error("❌ Formato de hora inválido. Usa el formato de 24 horas con dos puntos (ej: 09:30, 19:00).")
+                        st.stop()
+
                     nuevo_id = ObjectId()
                     usuarios_col.insert_one({
                         "_id": nuevo_id,
@@ -124,6 +161,8 @@ if st.session_state['usuario_id'] is None:
                         "password": encriptar_pass(nueva_pass),
                         "rol": "administrador",
                         "tenant_id": str(nuevo_id),
+                        "hora_apertura": h_apertura,
+                        "hora_cierre": h_cierre,
                         "logo": None,
                         "fondo": "#0d0d0d"
                     })
@@ -279,7 +318,7 @@ else:
             st.info("💡 **Tip de Soporte:** Si una empleada olvida su contraseña, escribe su mismo usuario aquí arriba junto con una contraseña nueva. El sistema la actualizará de inmediato sin borrar sus datos.")
             
             with st.form("form_alta_empleado", clear_on_submit=True):
-                nom_usuario_emp = st.text_input("Usuario de la empleada:").strip().lower()
+                nom_usuario_emp = st.text_input("Usuario de la empleada (ej: marta_nails):").strip().lower()
                 pass_usuario_emp = st.text_input("Nueva Contraseña / Contraseña Temporal:", type="password")
                 
                 if st.form_submit_button("💾 Guardar / Actualizar Cuenta"):
@@ -313,7 +352,6 @@ else:
             if lista_empleados:
                 tabla_emp = []
                 for emp in lista_empleados:
-                    # Ocultamos la cuenta maestra del Administrador para evitar accidentes
                     if emp.get("rol") != "administrador":
                         tabla_emp.append({
                             "👤 Usuario": emp["usuario"],
@@ -323,7 +361,6 @@ else:
                 if tabla_emp:
                     st.table(pd.DataFrame(tabla_emp))
                     
-                    # --- FORMULARIO INTEGRADO DE ELIMINACIÓN DE PERSONAL ---
                     st.markdown("---")
                     st.subheader("🚨 Dar de Baja a una Empleada")
                     st.write("Escribe el nombre de usuario exacto de la trabajadora para remover sus credenciales de acceso.")
@@ -332,7 +369,6 @@ else:
                         usuario_eliminar = st.text_input("👤 Usuario a eliminar:").strip().lower()
                         if st.form_submit_button("🗑️ Eliminar Trabajadora del Sistema"):
                             if usuario_eliminar:
-                                # Filtro de seguridad estricto para evitar ataques cross-tenant
                                 emp_verificar = usuarios_col.find_one({"usuario": usuario_eliminar, "tenant_id": tenant_id})
                                 
                                 if emp_verificar:
