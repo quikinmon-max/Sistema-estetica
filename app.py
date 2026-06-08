@@ -51,6 +51,7 @@ if 'usuario_id' not in st.session_state:
     st.session_state['usuario_login'] = None
     st.session_state['rol'] = None
     st.session_state['tenant_id'] = None
+    st.session_state['plan'] = None  
     st.session_state['logo'] = None
     st.session_state['fondo'] = None
 
@@ -95,10 +96,11 @@ if st.session_state['usuario_id'] is None:
                     rol = user_db.get("rol", "empleado")
                     tenant_id_actual = user_db["tenant_id"]
                     
-                    # 🕒 VALIDACIÓN DE HORARIO PARA EMPLEADAS
-                    if rol == "empleado":
-                        admin_negocio = usuarios_col.find_one({"_id": ObjectId(tenant_id_actual), "rol": "administrador"})
-                        
+                    admin_negocio = usuarios_col.find_one({"_id": ObjectId(tenant_id_actual), "rol": "administrador"})
+                    plan_negocio = admin_negocio.get("plan", "lite") if admin_negocio else "lite"
+                    
+                    # 🕒 VALIDACIÓN DE HORARIO: Exclusiva para planes Pro y Enterprise Shield
+                    if rol == "empleado" and plan_negocio in ["pro", "enterprise"]:
                         if admin_negocio:
                             try:
                                 h_apertura_str = admin_negocio.get("hora_apertura", "09:00")
@@ -109,10 +111,10 @@ if st.session_state['usuario_id'] is None:
                                 hora_actual = datetime.now().time()
                                 
                                 if not (hora_apertura <= hora_actual <= hora_cierre):
-                                    st.error(f"🛑 Acceso Denegado: El horario de acceso para empleadas en este salón es de {h_apertura_str} a {h_cierre_str}. Fuera de este horario el sistema permanece cerrado por seguridad.")
+                                    st.error(f"🛑 Acceso Denegado: El horario de acceso para empleadas en este salón es de {h_apertura_str} a {h_cierre_str}. Fuera de este horario el sistema permanece cerrado por seguridad de tu plan Pro/Shield.")
                                     st.stop()
                             except Exception as time_err:
-                                st.error(f"⚠️ Error al verificar el formato de horario del salón: {time_err}. Contacta al administrador.")
+                                st.error(f"⚠️ Error al verificar el formato de horario del salón: {time_err}.")
                                 st.stop()
                     
                     st.session_state['usuario_id'] = str(user_db["_id"])
@@ -120,6 +122,7 @@ if st.session_state['usuario_id'] is None:
                     st.session_state['usuario_login'] = user_db["usuario"]
                     st.session_state['rol'] = rol
                     st.session_state['tenant_id'] = tenant_id_actual
+                    st.session_state['plan'] = plan_negocio  
                     st.session_state['logo'] = user_db.get("logo", None)
                     st.session_state['fondo'] = user_db.get("fondo", "#0d0d0d")
                     st.success("¡Acceso concedido! Cargando panel... 🎉")
@@ -135,9 +138,12 @@ if st.session_state['usuario_id'] is None:
             nuevo_usuario = st.text_input("Crea un Usuario de Administrador (sin espacios) *").strip().lower()
             nueva_pass = st.text_input("Crea una Contraseña Segura *", type="password")
             
-            st.markdown("🕒 **Configuración de Seguridad de Horarios Laborales:**")
-            h_apertura = st.text_input("Hora de Apertura (Formato 24h ej: 09:00)", value="09:00")
-            h_cierre = st.text_input("Hora de Cierre (Formato 24h ej: 20:00)", value="20:00")
+            st.markdown("📦 **Selección del Plan de Negocio:**")
+            plan_seleccionado = st.selectbox("Elige el nivel del sistema:", ["lite", "pro", "enterprise"])
+            
+            st.markdown("🕒 **Configuración de Horarios Laborales (Aplica solo para Pro/Enterprise):**")
+            h_apertura = st.text_input("Hora de Apertura (Formato 24h)", value="09:00")
+            h_cierre = st.text_input("Hora de Cierre (Formato 24h)", value="20:00")
             
             if st.form_submit_button("Agregar Negocio"):
                 if usuarios_col.find_one({"usuario": nuevo_usuario}):
@@ -147,7 +153,7 @@ if st.session_state['usuario_id'] is None:
                         datetime.strptime(h_apertura, "%H:%M")
                         datetime.strptime(h_cierre, "%H:%M")
                     except ValueError:
-                        st.error("❌ Formato de hora inválido. Usa el formato de 24 horas con dos puntos (ej: 09:30, 19:00).")
+                        st.error("❌ Formato de hora inválido. Usa el formato de 24 horas (ej: 09:30).")
                         st.stop()
 
                     nuevo_id = ObjectId()
@@ -158,12 +164,13 @@ if st.session_state['usuario_id'] is None:
                         "password": encriptar_pass(nueva_pass),
                         "rol": "administrador",
                         "tenant_id": str(nuevo_id),
+                        "plan": plan_seleccionado,  
                         "hora_apertura": h_apertura,
                         "hora_cierre": h_cierre,
                         "logo": None,
                         "fondo": "#0d0d0d"
                     })
-                    st.success("✨ ¡Tu plataforma ha sido inicializada con éxito! Ya puedes iniciar sesión en la primera pestaña.")
+                    st.success(f"✨ ¡Salón inicializado en Plan {plan_seleccionado.upper()} con éxito! Ya puedes iniciar sesión.")
                 else:
                     st.warning("⚠️ Por favor, llena todos los campos obligatorios marcados con asterisco (*).")
 
@@ -173,10 +180,12 @@ if st.session_state['usuario_id'] is None:
 else:
     tenant_id = st.session_state['tenant_id']
     rol_usuario = st.session_state['rol']
+    plan_actual = st.session_state['plan']
 
     # Menú Lateral Personalizado
     st.sidebar.title(f"👑 {st.session_state['nombre_negocio']}")
-    st.sidebar.write(f"👤 Conectado: **{st.session_state['usuario_login']}** ({rol_usuario.upper()})")
+    st.sidebar.write(f"👤 Usuario: **{st.session_state['usuario_login']}**")
+    st.sidebar.write(f"📦 Plan Activo: **{plan_actual.upper()}**")
     
     opciones_menu = ["🔍 Buscar y Ver Historial", "📝 Registrar Visita"]
     if rol_usuario == "administrador":
@@ -191,6 +200,7 @@ else:
         st.session_state['usuario_login'] = None
         st.session_state['rol'] = None
         st.session_state['tenant_id'] = None
+        st.session_state['plan'] = None
         st.session_state['logo'] = None
         st.session_state['fondo'] = None
         st.rerun()
@@ -236,35 +246,30 @@ else:
             else:
                 st.warning("🕵️‍♂️ No se encontró ninguna clienta activa con ese nombre en tu negocio.")
 
-    # --- 📝 SECCIÓN 2: REGISTRAR VISITA (CON CONFIGURACIÓN DE ROLES PARA EDICIÓN) ---
+    # --- 📝 SECCIÓN 2: REGISTRAR VISITA ---
     elif opcion == "📝 Registrar Visita":
         st.title("📝 Control de Visita")
-        
-        # El nombre inicial siempre se escribe para buscar o dar de alta
         nombre_buscar = st.text_input("👤 Nombre completo de la clienta:").strip()
         
         if nombre_buscar:
             existe = clientes_col.find_one({"tenant_id": tenant_id, "nombre": {"$regex": f"^{nombre_buscar}$", "$options": "i"}})
             
             with st.form("form_registro", clear_on_submit=True):
-                # 🔒 CONFIGURACIÓN ADAPTATIVA DE BLOQUEO DE EDICIÓN 🔒
                 if existe:
-                    if rol_usuario == "empleado":
-                        st.warning("🔒 Clienta existente. Los datos generales están bloqueados. Solo el Administrador puede modificarlos.")
-                        # Empleada: ve los datos pero deshabilitados
+                    if rol_usuario == "empleado" and plan_actual in ["pro", "enterprise"]:
+                        st.warning("🔒 Los datos generales están bloqueados en este plan corporativo. Solo el Admin puede editarlos.")
                         nombre_final = st.text_input("Nombre de la Clienta:", value=existe["nombre"], disabled=True)
                         telefono = st.text_input("📞 Teléfono:", value=existe["telefono"], disabled=True)
                     else:
-                        st.success(f"✨ ¡Clienta reconocida! Rango de Administrador activo: Puedes editar sus datos generales si lo requieres.")
-                        # Administrador: puede editar el nombre y teléfono guardado
+                        st.success("✨ Modo de edición habilitado.")
                         nombre_final = st.text_input("Nombre de la Clienta:", value=existe["nombre"])
                         telefono = st.text_input("📞 Teléfono:", value=existe["telefono"])
                 else:
-                    st.info("🆕 ¡Nueva clienta detectada en tu base de datos! Completa los campos:")
+                    st.info("🆕 ¡Nueva clienta detectada!")
                     nombre_final = st.text_input("Nombre de la Clienta:", value=nombre_buscar)
                     telefono = st.text_input("📞 Teléfono:")
                 
-                foto_up = st.file_uploader("📷 Foto de Expediente (Opcional)", type=["jpg", "png", "jpeg"])
+                foto_up = st.file_uploader("📷 Foto de Expediente", type=["jpg", "png", "jpeg"])
 
                 col_a, col_b = st.columns(2)
                 with col_a:
@@ -284,18 +289,15 @@ else:
                     
                     if existe:
                         id_c = existe["_id"]
-                        # Si es administrador, actualiza cambios de texto e imagen si subió una
-                        if rol_usuario == "administrador":
+                        if rol_usuario == "empleado" and plan_actual in ["pro", "enterprise"]:
+                            if img_str:
+                                clientes_col.update_one({"_id": id_c}, {"$set": {"foto_perfil": img_str}})
+                        else:
                             actualizacion = {"nombre": nombre_final, "telefono": telefono}
                             if img_str:
                                 actualizacion["foto_perfil"] = img_str
                             clientes_col.update_one({"_id": id_c}, {"$set": actualizacion})
-                        else:
-                            # Si es empleada, solo le permitimos actualizar la foto de perfil de la ficha
-                            if img_str:
-                                clientes_col.update_one({"_id": id_c}, {"$set": {"foto_perfil": img_str}})
                     else:
-                        # Registro de una clienta totalmente nueva (Abierto para ambos rangos)
                         if nombre_final and telefono:
                             nuevo_cliente = {
                                 "tenant_id": tenant_id,
@@ -306,10 +308,9 @@ else:
                             resultado = clientes_col.insert_one(nuevo_cliente)
                             id_c = resultado.inserted_id
                         else:
-                            st.error("🛑 El nombre y teléfono son requeridos para dar de alta fichas nuevas.")
+                            st.error("🛑 El nombre y teléfono son obligatorios.")
                             st.stop()
                     
-                    # Se inserta la visita de forma normal ligada al ID correspondiente
                     nueva_visita = {
                         "tenant_id": tenant_id,
                         "id_cliente": id_c,
@@ -320,25 +321,24 @@ else:
                         "observaciones": obs
                     }
                     visitas_col.insert_one(nueva_visita)
-                    st.success("✅ ¡Visita y expediente sincronizados en la nube de forma exitosa!")
+                    st.success("✅ Registro guardado correctamente.")
         else:
-            st.write("💡 Ingresa el nombre de la clienta arriba para cargar la interfaz de registro.")
+            st.write("💡 Ingresa el nombre de la clienta.")
 
-    # --- ⚙️ SECCIÓN 3: ADMINISTRACIÓN SEGURA (TENANT LEVEL) ---
+    # --- ⚙️ SECCIÓN 3: ADMINISTRACIÓN SEGURA ---
     elif opcion == "⚙️ Administrar Sistema" and rol_usuario == "administrador":
         st.title("⚙️ Consola de Administración Privada")
-        st.write(f"Espacio corporativo de: **{st.session_state['nombre_negocio']}**")
+        st.write(f"Espacio corporativo de: **{st.session_state['nombre_negocio']}** | Plan: **{plan_actual.upper()}**")
         
-        tab_usuarios, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "📥 Copias de Respaldo", "🚨 Zona de Baja"])
+        tab_usuarios, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "📥 Catálogo y Respaldos", "🚨 Zona de Baja"])
         
-        # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS ---
+        # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS (ÍNDICE DESDE 1) ---
         with tab_usuarios:
             st.subheader("🏗️ Registrar o Actualizar Contraseña de Trabajadora")
-            st.info("💡 **Tip de Soporte:** Si una empleada olvida su contraseña, escribe su mismo usuario aquí arriba junto con una contraseña nueva. El sistema la actualizará de inmediato sin borrar sus datos.")
             
             with st.form("form_alta_empleado", clear_on_submit=True):
-                nom_usuario_emp = st.text_input("Usuario de la empleada (ej: marta_nails):").strip().lower()
-                pass_usuario_emp = st.text_input("Nueva Contraseña / Contraseña Temporal:", type="password")
+                nom_usuario_emp = st.text_input("Usuario de la empleada:").strip().lower()
+                pass_usuario_emp = st.text_input("Contraseña:", type="password")
                 
                 if st.form_submit_button("💾 Guardar / Actualizar Cuenta"):
                     if nom_usuario_emp and pass_usuario_emp:
@@ -350,23 +350,29 @@ else:
                                     {"_id": usuario_existente["_id"]},
                                     {"$set": {"password": encriptar_pass(pass_usuario_emp)}}
                                 )
-                                st.success(f"🔄 ¡Contraseña de '**{nom_usuario_emp}**' restablecida con éxito!")
+                                st.success("🔄 Contraseña restablecida.")
                             else:
-                                st.error("❌ Este usuario le pertenece a otra sucursal externa. Elige un nombre diferente.")
+                                st.error("❌ Este usuario pertenece a otra sucursal.")
                         else:
-                            usuarios_col.insert_one({
-                                "negocio": st.session_state['nombre_negocio'],
-                                "usuario": nom_usuario_emp,
-                                "password": encriptar_pass(pass_usuario_emp),
-                                "rol": "empleado", 
-                                "tenant_id": tenant_id
-                            })
-                            st.success(f"✅ ¡Cuenta de empleada para '**{nom_usuario_emp}**' creada exitosamente!")
+                            num_empleadas = usuarios_col.count_documents({"tenant_id": tenant_id, "rol": "empleado"})
+                            
+                            if plan_actual == "lite" and num_empleadas >= 2:
+                                st.error("🛑 Límite de Plan alcanzado: Tu plan Lite solo te permite registrar un máximo de 2 empleadas activas.")
+                            else:
+                                usuarios_col.insert_one({
+                                    "negocio": st.session_state['nombre_negocio'],
+                                    "usuario": nom_usuario_emp,
+                                    "password": encriptar_pass(pass_usuario_emp),
+                                    "rol": "empleado", 
+                                    "tenant_id": tenant_id
+                                })
+                                st.success("✅ Cuenta de empleada creada con éxito.")
+                                st.rerun()
                     else:
-                        st.warning("⚠️ Completa ambos campos para procesar el registro.")
+                        st.warning("⚠️ Completa ambos campos.")
             
             st.markdown("---")
-            st.subheader("👥 Plantilla de Empleados en tu Sucursal")
+            st.subheader("👥 Plantilla de Empleados")
             lista_empleados = list(usuarios_col.find({"tenant_id": tenant_id}))
             if lista_empleados:
                 tabla_emp = []
@@ -378,37 +384,39 @@ else:
                         })
                 
                 if tabla_emp:
-                    st.table(pd.DataFrame(tabla_emp))
-                    
-                    st.markdown("---")
-                    st.subheader("🚨 Dar de Baja a una Empleada")
-                    st.write("Escribe el nombre de usuario exacto de la trabajadora para remover sus credenciales de acceso.")
+                    # 🔢 AJUSTE: El índice de la tabla de empleadas empieza desde 1
+                    df_emp = pd.DataFrame(tabla_emp)
+                    df_emp.index = df_emp.index + 1
+                    st.table(df_emp)
                     
                     with st.form("form_baja_empleado", clear_on_submit=True):
                         usuario_eliminar = st.text_input("👤 Usuario a eliminar:").strip().lower()
                         if st.form_submit_button("🗑️ Eliminar Trabajadora del Sistema"):
                             if usuario_eliminar:
                                 emp_verificar = usuarios_col.find_one({"usuario": usuario_eliminar, "tenant_id": tenant_id})
-                                
-                                if emp_verificar:
-                                    if emp_verificar.get("rol") == "administrador":
-                                        st.error("🛑 Error de seguridad: No puedes eliminar cuentas con rango de Administrador Maestro.")
-                                    else:
-                                        usuarios_col.delete_one({"_id": emp_verificar["_id"]})
-                                        st.success(f"💥 Acceso revocado. El usuario '**{usuario_eliminar}**' fue borrado del servidor.")
-                                        st.rerun()
+                                if emp_verificar and emp_verificar.get("rol") != "administrador":
+                                    usuarios_col.delete_one({"_id": emp_verificar["_id"]})
+                                    st.success("💥 Acceso revocado.")
+                                    st.rerun()
                                 else:
-                                    st.error("❌ El usuario ingresado no pertenece a tu plantilla de sucursal.")
-                            else:
-                                st.warning("⚠️ Ingresa el nombre de usuario de la empleada que deseas remover.")
+                                    st.error("❌ No se puede eliminar.")
                 else:
                     st.info("ℹ️ Tu plantilla no cuenta con empleadas registradas actualmente.")
             else:
                 st.info("ℹ️ No hay personal registrado.")
 
-        # --- SUB-TAB 2: RESPALDOS CLOUD ---
+        # --- SUB-TAB 2: CATÁLOGO CON FILTRO DE BÚSQUEDA (MÁXIMO 1000+ CLIENTAS E ÍNDICE DESDE 1) ---
         with tab_datos:
-            mis_clientes = list(clientes_col.find({"tenant_id": tenant_id}))
+            st.subheader("📋 Tu Catálogo de Clientes Activos")
+            
+            # 🔍 NUEVO: Barra de búsqueda reactiva para el catálogo
+            filtro_nombre = st.text_input("🔍 Buscar cliente por nombre en el catálogo (Filtro rápido):").strip()
+            
+            query_clientes = {"tenant_id": tenant_id}
+            if filtro_nombre:
+                query_clientes["nombre"] = {"$regex": filtro_nombre, "$options": "i"}
+                
+            mis_clientes = list(clientes_col.find(query_clientes))
             
             if mis_clientes:
                 tabla_datos = []
@@ -419,14 +427,16 @@ else:
                         "📞 Teléfono": c["telefono"]
                     })
                 
-                st.subheader("📋 Tu Catálogo de Clientes Activos")
-                st.dataframe(pd.DataFrame(tabla_datos), use_container_width=True)
+                # 🔢 AJUSTE ESTRUCTURAL: Indexación desde 1 en lugar de 0
+                df_clientes = pd.DataFrame(tabla_datos)
+                df_clientes.index = df_clientes.index + 1
+                
+                st.dataframe(df_clientes, use_container_width=True)
                 
                 st.markdown("---")
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
-                    df_c_descarga = pd.DataFrame(tabla_datos)
-                    csv_c = df_c_descarga.to_csv(index=False).encode('utf-8')
+                    csv_c = df_clientes.to_csv(index=False).encode('utf-8')
                     st.download_button("👥 Exportar Base de Clientes (CSV)", csv_c, "mis_clientes.csv", "text/csv")
                 
                 with col_btn2:
@@ -443,30 +453,45 @@ else:
                                 "Observaciones": v["observaciones"]
                             })
                         df_v_descarga = pd.DataFrame(tabla_visitas)
+                        df_v_descarga.index = df_v_descarga.index + 1 # Índice desde 1 en visitas de respaldo también
                         csv_v = df_v_descarga.to_csv(index=False).encode('utf-8')
                         st.download_button("📜 Exportar Registro de Visitas (CSV)", csv_v, "mi_historial.csv", "text/csv")
             else:
-                st.info("💼 No tienes clientas dadas de alta en tu base de datos todavía.")
+                st.info("💼 No se encontraron clientas con ese criterio de búsqueda.")
 
-        # --- SUB-TAB 3: ZONA DE ELIMINACIÓN ---
+        # --- SUB-TAB 3: ZONA DE BAJA INTELIGENTE CON FILTRO DENTRO ---
         with tab_eliminar:
             st.subheader("🚨 Remover Registro del Servidor")
-            id_borrar_str = st.text_input("💥 Clave Interna de la clienta a dar de baja:")
+            st.write("Busca el nombre de la clienta para cargar su clave interna y procesar la baja de forma segura.")
             
-            if st.button("🗑️ Confirmar Baja Permanente"):
-                if id_borrar_str:
-                    try:
-                        obj_id = ObjectId(id_borrar_str)
-                        control_verificacion = clientes_col.find_one({"_id": obj_id, "tenant_id": tenant_id})
+            # 🔍 NUEVO: Buscador integrado en la zona de eliminación para salones de alta densidad (1000+ clientas)
+            nombre_baja_buscar = st.text_input("💥 Escribe el nombre de la clienta a dar de baja:").strip()
+            
+            if nombre_baja_buscar:
+                # Buscamos coincidencias exactas o parciales
+                coincidencias = list(clientes_col.find({
+                    "tenant_id": tenant_id,
+                    "nombre": {"$regex": nombre_baja_buscar, "$options": "i"}
+                }))
+                
+                if coincidencias:
+                    # Mapeamos las coincidencias en un selector para que el administrador elija exactamente cuál borrar
+                    opciones_clientes = {f"{c['nombre']} (Tel: {c['telefono']})": c for c in coincidencias}
+                    seleccion = st.selectbox("🎯 Selecciona la ficha exacta a eliminar:", list(opciones_clientes.keys()))
+                    
+                    cliente_a_borrar = opciones_clientes[seleccion]
+                    st.error(f"⚠️ ATENCIÓN: Estás a punto de borrar permanentemente el expediente de **{cliente_a_borrar['nombre']}** junto con todo su historial químico.")
+                    
+                    if st.button("🗑️ Confirmar Baja Permanente del Servidor"):
+                        obj_id = cliente_a_borrar["_id"]
                         
-                        if control_verificacion:
-                            visitas_col.delete_many({"id_cliente": obj_id, "tenant_id": tenant_id})
-                            clientes_col.delete_one({"_id": obj_id, "tenant_id": tenant_id})
-                            st.success("💥 Expediente y citas eliminados de la red de tu negocio.")
-                            st.rerun()
-                        else:
-                            st.error("🛑 Permiso Denegado: No puedes alterar expedientes de otras estéticas.")
-                    except Exception:
-                        st.error("❌ La clave ingresada no pertenece al formato nativo del clúster.")
+                        # Borrado en cascada (Visitas + Ficha de Cliente)
+                        visitas_col.delete_many({"id_cliente": obj_id, "tenant_id": tenant_id})
+                        clientes_col.delete_one({"_id": obj_id, "tenant_id": tenant_id})
+                        
+                        st.success(f"💥 ¡El expediente de **{cliente_a_borrar['nombre']}** ha sido removido del clúster exitosamente!")
+                        st.rerun()
                 else:
-                    st.warning("⚠️ Por favor introduce una clave válida para proceder.")
+                    st.warning("🕵️‍♂️ No se encontraron clientas que coincidan con ese nombre en tu local.")
+            else:
+                st.info("💡 Introduce el nombre de la clienta en el cuadro de arriba para activar los controles de baja.")
