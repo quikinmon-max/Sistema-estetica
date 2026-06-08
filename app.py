@@ -7,6 +7,7 @@ import pandas as pd
 import hashlib
 from pymongo import MongoClient
 from bson.objectid import ObjectId
+import pytz  # 🕒 LIBRERÍA DE SEGURIDAD PARA RELOJES SATELLITALES CLOUD
 
 # Configuración única de página combinando tu diseño definitivo
 st.set_page_config(layout="wide", page_title="Aesthetic Manager Pro", page_icon="✂️")
@@ -99,7 +100,7 @@ if st.session_state['usuario_id'] is None:
                     admin_negocio = usuarios_col.find_one({"_id": ObjectId(tenant_id_actual), "rol": "administrador"})
                     plan_negocio = admin_negocio.get("plan", "lite") if admin_negocio else "lite"
                     
-                    # 🕒 VALIDACIÓN DE HORARIO: Exclusiva para planes Pro y Enterprise Shield
+                    # 🕒 VALIDACIÓN DE HORARIO: Con corrección de Zona Horaria de México
                     if rol == "empleado" and plan_negocio in ["pro", "enterprise"]:
                         if admin_negocio:
                             try:
@@ -108,10 +109,13 @@ if st.session_state['usuario_id'] is None:
                                 
                                 hora_apertura = datetime.strptime(h_apertura_str, "%H:%M").time()
                                 hora_cierre = datetime.strptime(h_cierre_str, "%H:%M").time()
-                                hora_actual = datetime.now().time()
+                                
+                                # 🔥 SOLUCIÓN CRÍTICA: Forzamos la hora local de México en lugar de UTC del servidor cloud
+                                zona_mx = pytz.timezone("America/Mexico_City")
+                                hora_actual = datetime.now(zona_mx).time()
                                 
                                 if not (hora_apertura <= hora_actual <= hora_cierre):
-                                    st.error(f"🛑 Acceso Denegado: El horario de acceso para empleadas en este salón es de {h_apertura_str} a {h_cierre_str}. Fuera de este horario el sistema permanece cerrado por seguridad de tu plan Pro/Shield.")
+                                    st.error(f"🛑 Acceso Denegado: El horario de acceso para empleadas en este salón es de {h_apertura_str} a {h_cierre_str}. Fuera de este horario el sistema permanece cerrado por seguridad.")
                                     st.stop()
                             except Exception as time_err:
                                 st.error(f"⚠️ Error al verificar el formato de horario del salón: {time_err}.")
@@ -332,7 +336,7 @@ else:
         
         tab_usuarios, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "📥 Catálogo y Respaldos", "🚨 Zona de Baja"])
         
-        # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS (ÍNDICE DESDE 1) ---
+        # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS ---
         with tab_usuarios:
             st.subheader("🏗️ Registrar o Actualizar Contraseña de Trabajadora")
             
@@ -384,7 +388,6 @@ else:
                         })
                 
                 if tabla_emp:
-                    # 🔢 AJUSTE: El índice de la tabla de empleadas empieza desde 1
                     df_emp = pd.DataFrame(tabla_emp)
                     df_emp.index = df_emp.index + 1
                     st.table(df_emp)
@@ -405,11 +408,10 @@ else:
             else:
                 st.info("ℹ️ No hay personal registrado.")
 
-        # --- SUB-TAB 2: CATÁLOGO CON FILTRO DE BÚSQUEDA (MÁXIMO 1000+ CLIENTAS E ÍNDICE DESDE 1) ---
+        # --- SUB-TAB 2: CATÁLOGO CON FILTRO DE BÚSQUEDA ---
         with tab_datos:
             st.subheader("📋 Tu Catálogo de Clientes Activos")
             
-            # 🔍 NUEVO: Barra de búsqueda reactiva para el catálogo
             filtro_nombre = st.text_input("🔍 Buscar cliente por nombre en el catálogo (Filtro rápido):").strip()
             
             query_clientes = {"tenant_id": tenant_id}
@@ -427,7 +429,6 @@ else:
                         "📞 Teléfono": c["telefono"]
                     })
                 
-                # 🔢 AJUSTE ESTRUCTURAL: Indexación desde 1 en lugar de 0
                 df_clientes = pd.DataFrame(tabla_datos)
                 df_clientes.index = df_clientes.index + 1
                 
@@ -453,29 +454,26 @@ else:
                                 "Observaciones": v["observaciones"]
                             })
                         df_v_descarga = pd.DataFrame(tabla_visitas)
-                        df_v_descarga.index = df_v_descarga.index + 1 # Índice desde 1 en visitas de respaldo también
+                        df_v_descarga.index = df_v_descarga.index + 1 
                         csv_v = df_v_descarga.to_csv(index=False).encode('utf-8')
                         st.download_button("📜 Exportar Registro de Visitas (CSV)", csv_v, "mi_historial.csv", "text/csv")
             else:
                 st.info("💼 No se encontraron clientas con ese criterio de búsqueda.")
 
-        # --- SUB-TAB 3: ZONA DE BAJA INTELIGENTE CON FILTRO DENTRO ---
+        # --- SUB-TAB 3: ZONA DE BAJA INTELIGENTE ---
         with tab_eliminar:
             st.subheader("🚨 Remover Registro del Servidor")
             st.write("Busca el nombre de la clienta para cargar su clave interna y procesar la baja de forma segura.")
             
-            # 🔍 NUEVO: Buscador integrado en la zona de eliminación para salones de alta densidad (1000+ clientas)
             nombre_baja_buscar = st.text_input("💥 Escribe el nombre de la clienta a dar de baja:").strip()
             
             if nombre_baja_buscar:
-                # Buscamos coincidencias exactas o parciales
                 coincidencias = list(clientes_col.find({
                     "tenant_id": tenant_id,
                     "nombre": {"$regex": nombre_baja_buscar, "$options": "i"}
                 }))
                 
                 if coincidencias:
-                    # Mapeamos las coincidencias en un selector para que el administrador elija exactamente cuál borrar
                     opciones_clientes = {f"{c['nombre']} (Tel: {c['telefono']})": c for c in coincidencias}
                     seleccion = st.selectbox("🎯 Selecciona la ficha exacta a eliminar:", list(opciones_clientes.keys()))
                     
@@ -485,7 +483,6 @@ else:
                     if st.button("🗑️ Confirmar Baja Permanente del Servidor"):
                         obj_id = cliente_a_borrar["_id"]
                         
-                        # Borrado en cascada (Visitas + Ficha de Cliente)
                         visitas_col.delete_many({"id_cliente": obj_id, "tenant_id": tenant_id})
                         clientes_col.delete_one({"_id": obj_id, "tenant_id": tenant_id})
                         
