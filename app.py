@@ -279,7 +279,7 @@ else:
             st.info("💡 **Tip de Soporte:** Si una empleada olvida su contraseña, escribe su mismo usuario aquí arriba junto con una contraseña nueva. El sistema la actualizará de inmediato sin borrar sus datos.")
             
             with st.form("form_alta_empleado", clear_on_submit=True):
-                nom_usuario_emp = st.text_input("Usuario de la empleada (ej: marta_nails):").strip().lower()
+                nom_usuario_emp = st.text_input("Usuario de la empleada:").strip().lower()
                 pass_usuario_emp = st.text_input("Nueva Contraseña / Contraseña Temporal:", type="password")
                 
                 if st.form_submit_button("💾 Guardar / Actualizar Cuenta"):
