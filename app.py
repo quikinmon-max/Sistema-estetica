@@ -7,7 +7,7 @@ import pandas as pd
 import hashlib
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-import pytz  # 🕒 LIBRERÍA DE SEGURIDAD PARA RELOJES SATELLITALES CLOUD
+import pytz
 
 # Configuración única de página combinando tu diseño definitivo
 st.set_page_config(layout="wide", page_title="Aesthetic Manager Pro", page_icon="✂️")
