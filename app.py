@@ -65,12 +65,13 @@ clientes_col = db["clientes"]
 visitas_col = db["visitas"]
 
 # ==========================================
-# 🎨 APLICACIÓN DE ESTILOS VISUALES DINÁMICOS
+# 🎨 APLICACIÓN DE ESTILOS VISUALES DINÁMICOS (Responsivo para Celulares y PC)
 # ==========================================
 def aplicar_estilos_personalizados():
     if st.session_state['fondo']:
         st.markdown(f"""
             <style>
+            /* 1. Base del fondo para computadoras y tablets (Modo Horizontal) */
             .stApp {{
                 background-image: url("data:image/png;base64,{st.session_state['fondo']}");
                 background-size: cover;
@@ -78,6 +79,25 @@ def aplicar_estilos_personalizados():
                 background-attachment: fixed;
                 color: #e0e0e0;
             }}
+            
+            /* 2. Media Query: Ajustes automáticos si entran desde un TELÉFONO (Pantalla Vertical Móvil) */
+            @media (max-width: 768px) {{
+                .stApp {{
+                    background-size: auto 100%; /* Evita deformaciones o estiramientos feos en el cel */
+                    background-position: center top; /* Centra el diseño arriba para que luzca la marca */
+                    background-repeat: no-repeat;
+                    background-color: #0d0d0d; /* Rellena con negro abajo si falta scroll */
+                }}
+                
+                /* Opacidad de contraste en formularios para que se lean perfecto bajo el sol en la calle */
+                .stForm {{
+                    background-color: rgba(13, 13, 13, 0.85) !important;
+                    border: 1px solid #4b0082 !important;
+                    border-radius: 12px;
+                    padding: 15px !important;
+                }}
+            }}
+            
             .stButton>button {{ background-color: #4b0082; color: white; width: 100%; border-radius: 8px; }}
             </style>
             """, unsafe_allow_html=True)
@@ -129,6 +149,7 @@ if st.session_state['usuario_id'] is None:
                     admin_negocio = usuarios_col.find_one({"_id": ObjectId(tenant_id_actual), "rol": "administrador"})
                     plan_negocio = admin_negocio.get("plan", "lite") if admin_negocio else "lite"
                     
+                    # 🕒 VALIDACIÓN DE HORARIO CON MÉXICO TIMEZONE
                     if rol == "empleado" and plan_negocio in ["pro", "enterprise"]:
                         if admin_negocio:
                             try:
@@ -236,13 +257,12 @@ else:
         st.session_state['fondo'] = None
         st.rerun()
 
-    # --- 🔍 SECCIÓN 1: HISTORIAL SEGMENTADO CON LISTA INTERACTIVA PARA HOMÓNIMOS ---
+    # --- 🔍 SECCIÓN 1: HISTORIAL SEGMENTADO CON CONTROL PARA HOMÓNIMOS ---
     if opcion == "🔍 Buscar y Ver Historial":
         st.title("📂 Expediente de Clientas")
         nom_b = st.text_input("🔍 Escribe el nombre de la clienta a buscar:").strip()
         
         if nom_b:
-            # Buscamos todas las coincidencias que contengan ese texto
             coincidencias = list(clientes_col.find({
                 "tenant_id": tenant_id,
                 "nombre": {"$regex": nom_b, "$options": "i"}
@@ -251,17 +271,14 @@ else:
             if len(coincidencias) > 0:
                 cliente_seleccionado = None
                 
-                # 💥 FUNCIÓN CLAVE: Si hay más de una persona con el mismo nombre o similar, hace una lista de selección
                 if len(coincidencias) > 1:
-                    st.info(f"💡 Se encontraron {len(coincidencias)} clientas que coinciden con tu búsqueda. Selecciona la correcta de la lista:")
+                    st.info(f"💡 Se encontraron {len(coincidencias)} clientas que coinciden con tu búsqueda. Selecciona la correcta:")
                     opciones_lista = {f"👤 {c['nombre']} (Teléfono: {c['telefono']})": c for c in coincidencias}
                     seleccion = st.selectbox("🎯 Expedientes disponibles:", list(opciones_lista.keys()))
                     cliente_seleccionado = opciones_lista[seleccion]
                 else:
-                    # Si solo hay una coincidencia, la asigna directo sin preguntar
                     cliente_seleccionado = coincidencias[0]
                 
-                # Despliegue de la ficha seleccionada al darle clic/elegirla
                 if cliente_seleccionado:
                     st.markdown("---")
                     col_info, col_foto = st.columns([2, 1])
@@ -290,49 +307,34 @@ else:
                     else:
                         st.info("ℹ️ No hay visitas registradas para esta clienta.")
             else:
-                st.warning("🕵️‍♂️ No se encontró ninguna clienta activa con ese nombre en tu negocio.")
+                st.warning("🕵️‍♂️ No se encontró ninguna clienta activa con ese nombre.")
 
-    # --- 📝 SECCIÓN 2: REGISTRAR VISITA CON FILTRADO MULTI-CLIENTA ---
+    # --- 📝 SECCIÓN 2: REGISTRAR VISITA CON INTERFAZ DINÁMICA ---
     elif opcion == "📝 Registrar Visita":
         st.title("📝 Control de Visita")
         nombre_buscar = st.text_input("👤 Escribe el nombre completo de la clienta:").strip()
         
         if nombre_buscar:
-            # Buscamos coincidencias aproximadas
             coincidencias = list(clientes_col.find({
                 "tenant_id": tenant_id,
                 "nombre": {"$regex": f".*{nombre_buscar}.*", "$options": "i"}
             }))
             
             existe = None
-            es_nuevo_registro = False
-            
             if len(coincidencias) > 1:
-                st.info(f"💡 Se detectaron {len(coincidencias)} clientas existentes con nombres similares. Elige una o selecciona 'Nueva Clienta':")
-                
-                # Creamos una lista interactiva incluyendo la opción de dar de alta como ficha nueva
+                st.info(f"💡 Se detectaron {len(coincidencias)} clientas existentes con nombres similares:")
                 opciones_registro = {"🆕 Registrar como una NUEVA clienta (Crear expediente)": "NUEVO"}
                 for c in coincidencias:
                     opciones_registro[f"👤 Cargar ficha de: {c['nombre']} (Tel: {c['telefono']})"] = c
                     
                 seleccion_reg = st.selectbox("🎯 ¿A quién deseas registrar el servicio?", list(opciones_registro.keys()))
-                
-                if opciones_registro[seleccion_reg] == "NUEVO":
-                    es_nuevo_registro = True
-                else:
+                if opciones_registro[seleccion_reg] != "NUEVO":
                     existe = opciones_registro[seleccion_reg]
-                    
             elif len(coincidencias) == 1:
-                # Si solo hay una, cargamos la ficha automáticamente
                 existe = coincidencias[0]
-            else:
-                # Si no hay ninguna coincidencia, en automático se asume que es nueva
-                es_nuevo_registro = True
             
-            # Formulario dinámico adaptativo
             with st.form("form_registro", clear_on_submit=True):
                 if existe:
-                    # Aplicamos candados según el rol y el plan contratado
                     if rol_usuario == "empleado" and plan_actual in ["pro", "enterprise"]:
                         st.warning("🔒 Los datos generales están bloqueados en este plan corporativo. Solo el Admin puede editarlos.")
                         nombre_final = st.text_input("Nombre de la Clienta:", value=existe["nombre"], disabled=True)
@@ -342,7 +344,7 @@ else:
                         nombre_final = st.text_input("Nombre de la Clienta:", value=existe["nombre"])
                         telefono = st.text_input("📞 Teléfono:", value=existe["telefono"])
                 else:
-                    st.info("🆕 ¡Nueva clienta detectada! Llena los campos para generar el expediente de base:")
+                    st.info("🆕 ¡Nueva clienta detectada!")
                     nombre_final = st.text_input("Nombre de la Clienta:", value=nombre_buscar)
                     telefono = st.text_input("📞 Teléfono:")
                 
@@ -482,7 +484,7 @@ else:
             else:
                 st.info("ℹ️ No hay personal registrado.")
 
-        # --- SUB-TAB 2: PERSONALIZAR APP ---
+        # --- SUB-TAB 2: PERSONALIZAR APP desde Cel o PC ---
         with tab_multimedia:
             st.subheader("🖼️ Identidad Visual de tu Sucursal")
             st.write("Sube los archivos de imagen para personalizar el portal de administración.")
@@ -568,13 +570,11 @@ else:
                         csv_v = df_v_descarga.to_csv(index=False).encode('utf-8')
                         st.download_button("📜 Exportar Registro de Visitas (CSV)", csv_v, "mi_historial.csv", "text/csv")
             else:
-                st.info("💼 No se encontraron clientas con ese criterio de búsqueda.")
+                st.info("💼 No se encontraron clientas.")
 
         # --- SUB-TAB 4: ZONA DE ELIMINACIÓN ---
         with tab_eliminar:
             st.subheader("🚨 Remover Registro del Servidor")
-            st.write("Busca el nombre de la clienta para cargar su clave interna.")
-            
             nombre_baja_buscar = st.text_input("💥 Escribe el nombre de la clienta a dar de baja:").strip()
             
             if nombre_baja_buscar:
