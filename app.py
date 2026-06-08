@@ -4,26 +4,32 @@ import base64
 from PIL import Image
 import io
 import pandas as pd
+import hashlib
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
-st.set_page_config(layout="wide", page_title="Control Estética Pro ✂️", page_icon="💇‍♀️")
+st.set_page_config(layout="wide", page_title="Portal SaaS: Gestión de Estéticas ✂️", page_icon="👑")
 
-# 1. 🔌 CONEXIÓN A MONGO DB ATLAS
+# 1. 🔑 FUNCIÓN ENCRIPTA CONTRASEÑAS (SHA-256)
+def encriptar_pass(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+# 2. 🔌 CONEXIÓN A MONGO DB ATLAS
 @st.cache_resource
 def obtener_conexion_mongo():
     try:
         mongo_uri = st.secrets["mongo"]["uri"]
         client = MongoClient(mongo_uri)
-        db = client["control_estetica"]
+        # Usamos una base de datos global única para el ecosistema SaaS
+        db = client["control_estetica_saas"]
         return db
     except Exception as e:
-        st.error(f"❌ Error de conexión a MongoDB: {e}")
+        st.error(f"❌ Error de conexión a MongoDB Atlas: {e}")
         return None
 
 db = obtener_conexion_mongo()
 
-# 2. 📸 FUNCIÓN PARA ENCOGER Y CONVERTIR IMAGEN (Estabilidad móvil)
+# 3. 📸 FUNCIÓN PARA ENCOGER Y CONVERTIR IMAGEN (Estabilidad móvil)
 def imagen_a_base64(imagen_archivo):
     if imagen_archivo is not None:
         try:
@@ -36,221 +42,285 @@ def imagen_a_base64(imagen_archivo):
             return None
     return None
 
-# 3. 🔐 SISTEMA DE CONTROL DE ACCESO (MULTICUENTA)
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
-    st.session_state["usuario"] = ""
+# ==========================================
+# 🔐 CONTROL DE SESIONES (SaaS MODEL)
+# ==========================================
+if 'usuario_id' not in st.session_state:
+    st.session_state['usuario_id'] = None
+    st.session_state['nombre_negocio'] = None
+    st.session_state['logo'] = None
+    st.session_state['fondo'] = None
 
-def login():
-    st.title("✨ Bienvenida a Control Estética Pro ✨")
-    st.subheader("🔑 Inicia sesión para continuar")
+if db is None:
+    st.error("🛑 Error crítico: No se pudo conectar con el servidor de la base de datos en la nube.")
+    st.stop()
+
+# Inicializamos las colecciones core del ecosistema
+usuarios_col = db["usuarios"]
+clientes_col = db["clientes"]
+visitas_col = db["visitas"]
+
+# ==========================================
+# FLUX A: PORTAL DE ACCESO (LOG OUT STATE)
+# ==========================================
+if st.session_state['usuario_id'] is None:
+    st.markdown("""
+        <style>
+        .stApp { background-color: #0d0d0d; color: #e0e0e0; }
+        .stButton>button { background-color: #4b0082; color: white; width: 100%; border-radius: 8px; }
+        </style>
+        """, unsafe_allow_html=True)
+
+    st.title("🔐 Portal de Administración SaaS")
+    st.write("Bienvenido al centro de gestión inteligente para salones de belleza y estéticas.")
     
-    with st.form("form_login"):
-        usuario_input = st.text_input("👤 Usuario:")
-        password_input = st.text_input("🔒 Contraseña:", type="password")
-        boton_entrar = st.form_submit_button("🚀 Ingresar al Sistema")
-        
-        if boton_entrar:
-            # Validamos contra los secretos guardados en Streamlit
-            if usuario_input in st.secrets["usuarios"] and st.secrets["usuarios"][usuario_input] == password_input:
-                st.session_state["autenticado"] = True
-                st.session_state["usuario"] = usuario_input
-                st.success(f"¡Bienvenido de vuelta, {usuario_input}! 👋")
-                st.rerun()
-            else:
-                st.error("❌ Usuario o contraseña incorrectos. Intenta de nuevo.")
+    tab_login, tab_registro = st.tabs(["👤 Iniciar Sesión", "🏢 Registrar Mi Negocio"])
+    
+    # --- PESTAÑA 1: INICIAR SESIÓN ---
+    with tab_login:
+        with st.form("form_login"):
+            usuario_login = st.text_input("Usuario:").strip().lower()
+            pass_login = st.text_input("Contraseña:", type="password")
+            
+            if st.form_submit_button("🚀 Entrar al Sistema"):
+                user_db = usuarios_col.find_one({
+                    "usuario": usuario_login, 
+                    "password": encriptar_pass(pass_login)
+                })
+                
+                if user_db:
+                    st.session_state['usuario_id'] = str(user_db["_id"])
+                    st.session_state['nombre_negocio'] = user_db["negocio"]
+                    st.session_state['logo'] = user_db.get("logo", None)
+                    st.session_state['fondo'] = user_db.get("fondo", "#0d0d0d")
+                    st.success("¡Acceso concedido! Cargando panel... 🎉")
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos.")
+                        
+    # --- PESTAÑA 2: REGISTRAR NUEVO NEGOCIO ---
+    with tab_registro:
+        st.write("🚀 Crea una infraestructura en la nube exclusiva para tu estética en un minuto.")
+        with st.form("form_registro_negocio"):
+            nuevo_negocio = st.text_input("Nombre de la Estética / Salón *")
+            nuevo_usuario = st.text_input("Crea un Usuario de Administrador (sin espacios) *").strip().lower()
+            nueva_pass = st.text_input("Crea una Contraseña Segura *", type="password")
+            
+            if st.form_submit_button("🏗️ Clonar e Inicializar Sistema"):
+                if usuarios_col.find_one({"usuario": nuevo_usuario}):
+                    st.error("❌ Ese nombre de usuario ya está registrado por otra estética. Intenta con otro.")
+                elif nuevo_negocio and nuevo_usuario and nueva_pass:
+                    usuarios_col.insert_one({
+                        "negocio": nuevo_negocio,
+                        "usuario": nuevo_usuario,
+                        "password": encriptar_pass(nueva_pass),
+                        "logo": None,
+                        "fondo": "#0d0d0d"
+                    })
+                    st.success("✨ ¡Tu plataforma ha sido inicializada con éxito! Ya puedes iniciar sesión en la primera pestaña.")
+                else:
+                    st.warning("⚠️ Por favor, llena todos los campos obligatorios marcados con asterisco (*).")
 
-def logout():
-    st.session_state["autenticado"] = False
-    st.session_state["usuario"] = ""
-    st.rerun()
-
-# --- VALIDACIÓN DE SESIÓN ---
-if not st.session_state["autenticado"]:
-    login()
+# ==========================================
+# FLUX B: SISTEMA OPERATIVO (LOGGED IN STATE)
+# ==========================================
 else:
-    # 4. 🧭 NAVEGACIÓN Y MENÚ LATERAL
-    st.sidebar.title("👑 Menú Principal")
-    st.sidebar.write(f"👤 Sesión activa: **{st.session_state['usuario']}**")
+    # Capturamos el Tenant actual (El ID único del negocio logueado)
+    tenant_id = st.session_state['usuario_id']
+
+    # Menú Lateral Personalizado
+    st.sidebar.title(f"👑 {st.session_state['nombre_negocio']}")
+    st.sidebar.write(f"🟢 Conectado como: **{st.session_state['usuario_id'][:8]}...**")
     
-    opcion = st.sidebar.radio("Ir a:", [
+    opcion = st.sidebar.radio("Navegación:", [
         "🔍 Buscar y Ver Historial", 
         "📝 Registrar Visita", 
         "⚙️ Administrar Sistema"
     ])
     
     st.sidebar.markdown("---")
-    if st.sidebar.button("🚪 Cerrar Sesión"):
-        logout()
+    if st.sidebar.button("🚪 Salir del Portal"):
+        st.session_state['usuario_id'] = None
+        st.session_state['nombre_negocio'] = None
+        st.session_state['logo'] = None
+        st.session_state['fondo'] = None
+        st.rerun()
 
-    if db is None:
-        st.error("🛑 No se pudo establecer comunicación con la base de datos en la nube.")
-    else:
-        clientes_col = db["clientes"]
-        visitas_col = db["visitas"]
-
-        # --- 🔍 SECCIÓN 1: BUSCAR SOLO POR NOMBRE ---
-        if opcion == "🔍 Buscar y Ver Historial":
-            st.title("📂 Expediente Clínico de Clientas")
-            nom_b = st.text_input("🔍 Escribe el nombre de la clienta para buscar:")
+    # --- 🔍 SECCIÓN 1: HISTORIAL SEGMENTADO POR NEGOCIO ---
+    if opcion == "🔍 Buscar y Ver Historial":
+        st.title("📂 Expediente de Clientas")
+        nom_b = st.text_input("🔍 Escribe el nombre de la clienta:")
+        
+        if nom_b:
+            # Filtro Multitenant: El cliente debe coincidir con el nombre Y pertenecer a este negocio (tenant_id)
+            cliente = clientes_col.find_one({
+                "tenant_id": tenant_id,
+                "nombre": {"$regex": nom_b, "$options": "i"}
+            })
             
-            if nom_b:
-                cliente = clientes_col.find_one({"nombre": {"$regex": nom_b, "$options": "i"}})
-                
-                if cliente:
-                    st.markdown("---")
-                    col_info, col_foto = st.columns([2, 1])
-                    with col_info:
-                        st.header(f"👤 Clienta: {cliente['nombre']}")
-                        st.subheader(f"📞 Teléfono: {cliente['telefono']}")
-                    with col_foto:
-                        if "foto_perfil" in cliente and cliente["foto_perfil"]:
-                            try:
-                                st.image(f"data:image/png;base64,{cliente['foto_perfil']}", width=250)
-                            except:
-                                st.error("⚠️ Error al mostrar la foto de perfil.")
-                        else:
-                            st.image("https://via.placeholder.com/250?text=Sin+Foto+📷")
-
-                    st.markdown("---")
-                    st.subheader("📜 Historial Cronológico de Visitas")
-                    visitas = list(visitas_col.find({"id_cliente": cliente["_id"]}).sort("fecha", 1))
-                    
-                    if visitas:
-                        for v in visitas:
-                            with st.expander(f"📅 Fecha: {v['fecha']}  |  💇‍♀️ Servicio: {v['servicio']}"):
-                                st.write(f"👤 **Atendida por:** {v['estilista']}")
-                                st.info(f"🧪 **Fórmula Aplicada:**\n\n{v['formula']}")
-                                st.write(f"📝 **Observaciones:** {v['observaciones']}")
-                    else:
-                        st.info("ℹ️ Esta clienta aún no tiene visitas registradas.")
-                else:
-                    st.warning("🕵️‍♂️ No se encontró ninguna clienta con ese nombre.")
-
-        # --- 📝 SECCIÓN 2: REGISTRAR VISITA ---
-        elif opcion == "📝 Registrar Visita":
-            st.title("📝 Registro de Nueva Visita")
-            nombre_input = st.text_input("👤 Nombre completo de la clienta:")
-            
-            if nombre_input:
-                existe = clientes_col.find_one({"nombre": nombre_input})
-                
-                with st.form("form_registro", clear_on_submit=True):
-                    if existe:
-                        st.success(f"✨ Clienta reconocida: **{nombre_input}**. ¿Deseas actualizar su foto de perfil?")
-                        telefono = existe["telefono"]
-                    else:
-                        st.info("🆕 ¡Nueva clienta detectada! Llena sus datos de contacto.")
-                        telefono = st.text_input("📞 Teléfono:")
-                    
-                    foto_up = st.file_uploader("📷 Subir o Actualizar Foto de Perfil", type=["jpg", "png", "jpeg"])
-
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        fecha = st.date_input("📅 Fecha del Servicio", date.today())
-                        estilista = st.text_input("💇‍♀️ Estilista que atiende:")
-                    with col_b:
-                        serv = st.selectbox("🎨 Tipo de Servicio", ["Corte", "Tinte", "Peinado", "Tratamiento", "B.Color", "Efecto", "Retoque", "C.Global", "Otro"])
-                    
-                    formula = st.text_area("🧪 Fórmula Química / Mezcla aplicada:")
-                    obs = st.text_area("✍️ Observaciones adicionales (Estado del cabello, detalles, etc.):")
-                    
-                    if st.form_submit_button("💾 Guardar en Expediente"):
-                        img_str = imagen_a_base64(foto_up)
-                        
-                        if existe:
-                            id_c = existe["_id"]
-                            if img_str:
-                                clientes_col.update_one({"_id": id_c}, {"$set": {"foto_perfil": img_str}})
-                        else:
-                            if nombre_input and telefono:
-                                nuevo_cliente = {
-                                    "nombre": nombre_input,
-                                    "telefono": telefono,
-                                    "foto_perfil": img_str
-                                }
-                                resultado = clientes_col.insert_one(nuevo_cliente)
-                                id_c = resultado.inserted_id
-                            else:
-                                st.error("🛑 Error: El Nombre y el Teléfono son completamente obligatorios para registrar nuevas fichas.")
-                                st.stop()
-                        
-                        nueva_visita = {
-                            "id_cliente": id_c,
-                            "fecha": str(fecha),
-                            "estilista": estilista,
-                            "servicio": serv,
-                            "formula": formula,
-                            "observaciones": obs
-                        }
-                        visitas_col.insert_one(nueva_visita)
-                        st.success("✅ ¡Visita y datos guardados de forma segura en MongoDB Atlas!")
-            else:
-                st.write("💡 Escribe el nombre de la clienta arriba para desplegar el formulario.")
-
-        # --- ⚙️ SECCIÓN 3: ADMINISTRACIÓN Y RESPALDO ---
-        elif opcion == "⚙️ Administrar Sistema":
-            st.title("⚙️ Panel de Control y Administración")
-            
-            todos_clientes = list(clientes_col.find())
-            
-            if todos_clientes:
-                tabla_datos = []
-                for c in todos_clientes:
-                    tabla_datos.append({
-                        "🔑 ID Interno (Mongo)": str(c["_id"]),
-                        "👤 Nombre": c["nombre"],
-                        "📞 Teléfono": c["telefono"]
-                    })
-                
-                st.subheader("📋 Directorio de Clientas Activas")
-                st.dataframe(pd.DataFrame(tabla_datos), use_container_width=True)
-                
-                # --- RESPALDOS CLOUD ---
+            if cliente:
                 st.markdown("---")
-                st.subheader("📥 Copias de Seguridad (Respaldos)")
-                st.write("Descarga bases de datos actualizadas directo a tu dispositivo en formato CSV.")
-                
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    df_c_descarga = pd.DataFrame(tabla_datos)
-                    csv_c = df_c_descarga.to_csv(index=False).encode('utf-8')
-                    st.download_button("👥 Descargar Lista de Clientes (CSV)", csv_c, "clientes_cloud.csv", "text/csv")
-                
-                with col_btn2:
-                    todos_visitas = list(visitas_col.find())
-                    if todos_visitas:
-                        tabla_visitas = []
-                        for v in todos_visitas:
-                            tabla_visitas.append({
-                                "ID Visita": str(v["_id"]),
-                                "ID Cliente": str(v["id_cliente"]),
-                                "Fecha": v["fecha"],
-                                "Servicio": v["servicio"],
-                                "Fórmula": v["formula"],
-                                "Observaciones": v["observaciones"]
-                            })
-                        df_v_descarga = pd.DataFrame(tabla_visitas)
-                        csv_v = df_v_descarga.to_csv(index=False).encode('utf-8')
-                        st.download_button("📜 Descargar Historial Completo (CSV)", csv_v, "historial_cloud.csv", "text/csv")
-                
-                # --- ZONA DE ELIMINACIÓN ---
-                st.markdown("---")
-                st.subheader("🚨 Zona de Peligro (Eliminar Registros)")
-                id_borrar_str = st.text_input("💥 Ingresa el 'ID Interno (Mongo)' de la clienta:")
-                
-                if st.button("🗑️ Eliminar Permanentemente"):
-                    if id_borrar_str:
+                col_info, col_foto = st.columns([2, 1])
+                with col_info:
+                    st.header(f"👤 Clienta: {cliente['nombre']}")
+                    st.subheader(f"📞 Teléfono: {cliente['telefono']}")
+                with col_foto:
+                    if "foto_perfil" in cliente and cliente["foto_perfil"]:
                         try:
-                            obj_id = ObjectId(id_borrar_str)
-                            # Borramos historial y luego perfil
-                            visitas_col.delete_many({"id_cliente": obj_id})
-                            clientes_col.delete_one({"_id": obj_id})
-                            st.success("💥 Expediente e historial borrados permanentemente de la nube.")
-                            st.rerun()
-                        except Exception:
-                            st.error("❌ El formato del ID ingresado no corresponde a las llaves de MongoDB Atlas.")
+                            st.image(f"data:image/png;base64,{cliente['foto_perfil']}", width=250)
+                        except:
+                            st.error("⚠️ Error de renderizado en la imagen.")
                     else:
-                        st.warning("⚠️ Por favor escribe un ID válido antes de presionar el botón.")
+                        st.image("https://via.placeholder.com/250?text=Sin+Foto+📷")
+
+                st.markdown("---")
+                st.subheader("📜 Historial de Visitas")
+                # Traemos solo las visitas de este negocio para este cliente específico
+                visitas = list(visitas_col.find({"tenant_id": tenant_id, "id_cliente": cliente["_id"]}).sort("fecha", 1))
+                
+                if visitas:
+                    for v in visitas:
+                        with st.expander(f"📅 Fecha: {v['fecha']}  |  💇‍♀️ Servicio: {v['servicio']}"):
+                            st.write(f"👤 **Atendida por:** {v['estilista']}")
+                            st.info(f"🧪 **Fórmula Aplicada:**\n\n{v['formula']}")
+                            st.write(f"📝 **Observaciones:** {v['observaciones']}")
+                else:
+                    st.info("ℹ️ No hay visitas registradas para esta clienta.")
             else:
-                st.info("💼 No hay clientas registradas todavía en este servidor.")
+                st.warning("🕵️‍♂️ No se encontró ninguna clienta activa con ese nombre en tu negocio.")
+
+    # --- 📝 SECCIÓN 2: REGISTRAR VISITA CON SEGMENTACIÓN ---
+    elif opcion == "📝 Registrar Visita":
+        st.title("📝 Control de Visita")
+        nombre_input = st.text_input("👤 Nombre completo de la clienta:")
+        
+        if nombre_input:
+            # Buscamos si existe la clienta únicamente en los registros de este negocio
+            existe = clientes_col.find_one({"tenant_id": tenant_id, "nombre": nombre_input})
+            
+            with st.form("form_registro", clear_on_submit=True):
+                if existe:
+                    st.success(f"✨ Clienta existente. ¿Deseas refrescar su foto de perfil?")
+                    telefono = existe["telefono"]
+                else:
+                    st.info("🆕 ¡Nueva clienta detectada en tu base de datos! Completa los campos:")
+                    telefono = st.text_input("📞 Teléfono:")
+                
+                foto_up = st.file_uploader("📷 Foto de Expediente", type=["jpg", "png", "jpeg"])
+
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    fecha = st.date_input("📅 Fecha", date.today())
+                    estilista = st.text_input("💇‍♀️ Estilista:")
+                with col_b:
+                    serv = st.selectbox("🎨 Servicio Realizado", ["Corte", "Tinte", "Peinado", "Tratamiento", "B.Color", "Efecto", "Retoque", "C.Global", "Otro"])
+                
+                formula = st.text_area("🧪 Fórmula / Mezcla Química:")
+                obs = st.text_area("✍️ Notas de Seguimiento:")
+                
+                if st.form_submit_button("💾 Guardar Datos"):
+                    img_str = imagen_a_base64(foto_up)
+                    
+                    if existe:
+                        id_c = existe["_id"]
+                        if img_str:
+                            clientes_col.update_one({"_id": id_c}, {"$set": {"foto_perfil": img_str}})
+                    else:
+                        if nombre_input and telefono:
+                            nuevo_cliente = {
+                                "tenant_id": tenant_id, # Guardamos el ID del dueño
+                                "nombre": nombre_input,
+                                "telefono": telefono,
+                                "foto_perfil": img_str
+                            }
+                            resultado = clientes_col.insert_one(nuevo_cliente)
+                            id_c = resultado.inserted_id
+                        else:
+                            st.error("🛑 El nombre y teléfono son requeridos para altas de clientes.")
+                            st.stop()
+                    
+                    nueva_visita = {
+                        "tenant_id": tenant_id, # Enlazamos la visita al negocio
+                        "id_cliente": id_c,
+                        "fecha": str(fecha),
+                        "estilista": estilista,
+                        "servicio": serv,
+                        "formula": formula,
+                        "observaciones": obs
+                    }
+                    visitas_col.insert_one(nueva_visita)
+                    st.success("✅ ¡Servicio guardado en la nube de tu sucursal de forma exitosa!")
+        else:
+            st.write("💡 Ingresa el nombre de la clienta para cargar la interfaz de registro.")
+
+    # --- ⚙️ SECCIÓN 3: ADMINISTRACIÓN SEGURA (TENANT LEVEL) ---
+    elif opcion == "⚙️ Administrar Sistema":
+        st.title("⚙️ Consola de Administración Privada")
+        st.write(f"Espacio corporativo de: **{st.session_state['nombre_negocio']}**")
+        
+        # Consultamos únicamente las clientas de este negocio logueado
+        mis_clientes = list(clientes_col.find({"tenant_id": tenant_id}))
+        
+        if mis_clientes:
+            tabla_datos = []
+            for c in mis_clientes:
+                tabla_datos.append({
+                    "🔑 Clave Interna": str(c["_id"]),
+                    "👤 Clienta": c["nombre"],
+                    "📞 Teléfono": c["telefono"]
+                })
+            
+            st.subheader("📋 Tu Catálogo de Clientes Activos")
+            st.dataframe(pd.DataFrame(tabla_datos), use_container_width=True)
+            
+            st.markdown("---")
+            st.subheader("📥 Generar Copia de Respaldo Local")
+            st.write("Extrae un archivo plano ejecutable de tus datos de sucursal.")
+            
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                df_c_descarga = pd.DataFrame(tabla_datos)
+                csv_c = df_c_descarga.to_csv(index=False).encode('utf-8')
+                st.download_button("👥 Exportar Base de Clientes (CSV)", csv_c, "mis_clientes.csv", "text/csv")
+            
+            with col_btn2:
+                mis_visitas = list(visitas_col.find({"tenant_id": tenant_id}))
+                if mis_visitas:
+                    tabla_visitas = []
+                    for v in mis_visitas:
+                        tabla_visitas.append({
+                            "ID Visita": str(v["_id"]),
+                            "ID Cliente": str(v["id_cliente"]),
+                            "Fecha": v["fecha"],
+                            "Servicio": v["servicio"],
+                            "Fórmula": v["formula"],
+                            "Observaciones": v["observaciones"]
+                        })
+                    df_v_descarga = pd.DataFrame(tabla_visitas)
+                    csv_v = df_v_descarga.to_csv(index=False).encode('utf-8')
+                    st.download_button("📜 Exportar Registro de Visitas (CSV)", csv_v, "mi_historial.csv", "text/csv")
+            
+            st.markdown("---")
+            st.subheader("🚨 Remover Registro del Servidor")
+            id_borrar_str = st.text_input("💥 Clave Interna de la clienta a dar de baja:")
+            
+            if st.button("🗑️ Confirmar Baja Permanente"):
+                if id_borrar_str:
+                    try:
+                        obj_id = ObjectId(id_borrar_str)
+                        # Verificación de seguridad: Asegurarse de que el registro pertenece al tenant actual
+                        control_verificacion = clientes_col.find_one({"_id": obj_id, "tenant_id": tenant_id})
+                        
+                        if control_verificacion:
+                            visitas_col.delete_many({"id_cliente": obj_id, "tenant_id": tenant_id})
+                            clientes_col.delete_one({"_id": obj_id, "tenant_id": tenant_id})
+                            st.success("💥 Expediente y citas eliminados de la red de tu negocio.")
+                            st.rerun()
+                        else:
+                            st.error("🛑 Permiso Denegado: No puedes alterar expedientes de otras estéticas.")
+                    except Exception:
+                        st.error("❌ La clave ingresada no pertenece al formato nativo del clúster.")
+                else:
+                    st.warning("⚠️ Por favor introduce una clave válida para proceder.")
+        else:
+            st.info("💼 No tienes clientas dadas de alta en tu base de datos todavía.")
