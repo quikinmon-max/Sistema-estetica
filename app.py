@@ -8,8 +8,8 @@ import hashlib
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
-st.set_page_config(layout="wide", page_title="Portal SaaS: Gestión de Estéticas ✂️", page_icon="👑")
-st.set_page_config(layout="wide", page_title="Esytetic Manager Pro")
+# Configuración única de página combinando tu diseño
+st.set_page_config(layout="wide", page_title="Esytetic Manager Pro", page_icon="✂️")
 
 # 1. 🔑 FUNCIÓN ENCRIPTA CONTRASEÑAS (SHA-256)
 def encriptar_pass(password):
@@ -21,7 +21,6 @@ def obtener_conexion_mongo():
     try:
         mongo_uri = st.secrets["mongo"]["uri"]
         client = MongoClient(mongo_uri)
-        # Usamos una base de datos global única para el ecosistema SaaS
         db = client["control_estetica_saas"]
         return db
     except Exception as e:
@@ -49,6 +48,9 @@ def imagen_a_base64(imagen_archivo):
 if 'usuario_id' not in st.session_state:
     st.session_state['usuario_id'] = None
     st.session_state['nombre_negocio'] = None
+    st.session_state['usuario_login'] = None
+    st.session_state['rol'] = None
+    st.session_state['tenant_id'] = None
     st.session_state['logo'] = None
     st.session_state['fondo'] = None
 
@@ -92,6 +94,9 @@ if st.session_state['usuario_id'] is None:
                 if user_db:
                     st.session_state['usuario_id'] = str(user_db["_id"])
                     st.session_state['nombre_negocio'] = user_db["negocio"]
+                    st.session_state['usuario_login'] = user_db["usuario"]
+                    st.session_state['rol'] = user_db.get("rol", "empleado") # Si no está definido, hereda rol de empleada
+                    st.session_state['tenant_id'] = user_db["tenant_id"] # Identificador del local
                     st.session_state['logo'] = user_db.get("logo", None)
                     st.session_state['fondo'] = user_db.get("fondo", "#0d0d0d")
                     st.success("¡Acceso concedido! Cargando panel... 🎉")
@@ -111,10 +116,14 @@ if st.session_state['usuario_id'] is None:
                 if usuarios_col.find_one({"usuario": nuevo_usuario}):
                     st.error("❌ Ese nombre de usuario ya está registrado por otra estética. Intenta con otro.")
                 elif nuevo_negocio and nuevo_usuario and nueva_pass:
+                    nuevo_id = ObjectId()
                     usuarios_col.insert_one({
+                        "_id": nuevo_id,
                         "negocio": nuevo_negocio,
                         "usuario": nuevo_usuario,
                         "password": encriptar_pass(nueva_pass),
+                        "rol": "administrador", # Cuenta Maestra inicial
+                        "tenant_id": str(nuevo_id),
                         "logo": None,
                         "fondo": "#0d0d0d"
                     })
@@ -126,22 +135,27 @@ if st.session_state['usuario_id'] is None:
 # FLUX B: SISTEMA OPERATIVO (LOGGED IN STATE)
 # ==========================================
 else:
-    # Capturamos el Tenant actual (El ID único del negocio logueado)
-    tenant_id = st.session_state['usuario_id']
+    tenant_id = st.session_state['tenant_id']
+    rol_usuario = st.session_state['rol']
 
-    # Menú Lateral Personalizado
+    # Menú Lateral Personalizado con tu título corporativo
     st.sidebar.title(f"👑 {st.session_state['nombre_negocio']}")
+    st.sidebar.write(f"👤 Conectado: **{st.session_state['usuario_login']}** ({rol_usuario.upper()})")
     
-    opcion = st.sidebar.radio("Navegación:", [
-        "🔍 Buscar y Ver Historial", 
-        "📝 Registrar Visita", 
-        "⚙️ Administrar Sistema"
-    ])
+    # Restricción de navegación adaptativa: Las empleadas no ven el panel de administración
+    opciones_menu = ["🔍 Buscar y Ver Historial", "📝 Registrar Visita"]
+    if rol_usuario == "administrador":
+        opciones_menu.append("⚙️ Administrar Sistema")
+        
+    opcion = st.sidebar.radio("Navegación:", opciones_menu)
     
     st.sidebar.markdown("---")
     if st.sidebar.button("🚪 Cerrar Sesión"):
         st.session_state['usuario_id'] = None
         st.session_state['nombre_negocio'] = None
+        st.session_state['usuario_login'] = None
+        st.session_state['rol'] = None
+        st.session_state['tenant_id'] = None
         st.session_state['logo'] = None
         st.session_state['fondo'] = None
         st.rerun()
@@ -152,7 +166,6 @@ else:
         nom_b = st.text_input("🔍 Escribe el nombre de la clienta:")
         
         if nom_b:
-            # Filtro Multitenant: El cliente debe coincidir con el nombre Y pertenecer a este negocio (tenant_id)
             cliente = clientes_col.find_one({
                 "tenant_id": tenant_id,
                 "nombre": {"$regex": nom_b, "$options": "i"}
@@ -175,7 +188,6 @@ else:
 
                 st.markdown("---")
                 st.subheader("📜 Historial de Visitas")
-                # Traemos solo las visitas de este negocio para este cliente específico
                 visitas = list(visitas_col.find({"tenant_id": tenant_id, "id_cliente": cliente["_id"]}).sort("fecha", 1))
                 
                 if visitas:
@@ -195,7 +207,6 @@ else:
         nombre_input = st.text_input("👤 Nombre completo de la clienta:")
         
         if nombre_input:
-            # Buscamos si existe la clienta únicamente en los registros de este negocio
             existe = clientes_col.find_one({"tenant_id": tenant_id, "nombre": nombre_input})
             
             with st.form("form_registro", clear_on_submit=True):
@@ -211,7 +222,11 @@ else:
                 col_a, col_b = st.columns(2)
                 with col_a:
                     fecha = st.date_input("📅 Fecha", date.today())
-                    estilista = st.text_input("💇‍♀️ Estilista:")
+                    # Si es empleada se bloquea el input y se inyecta su propio usuario de forma transparente
+                    if rol_usuario == "empleado":
+                        estilista = st.text_input("💇‍♀️ Estilista:", value=st.session_state['usuario_login'], disabled=True)
+                    else:
+                        estilista = st.text_input("💇‍♀️ Estilista:", value=st.session_state['usuario_login'])
                 with col_b:
                     serv = st.selectbox("🎨 Servicio Realizado", ["Corte", "Tinte", "Peinado", "Tratamiento", "B.Color", "Efecto", "Retoque", "C.Global", "Otro"])
                 
@@ -228,7 +243,7 @@ else:
                     else:
                         if nombre_input and telefono:
                             nuevo_cliente = {
-                                "tenant_id": tenant_id, # Guardamos el ID del dueño
+                                "tenant_id": tenant_id,
                                 "nombre": nombre_input,
                                 "telefono": telefono,
                                 "foto_perfil": img_str
@@ -240,7 +255,7 @@ else:
                             st.stop()
                     
                     nueva_visita = {
-                        "tenant_id": tenant_id, # Enlazamos la visita al negocio
+                        "tenant_id": tenant_id,
                         "id_cliente": id_c,
                         "fecha": str(fecha),
                         "estilista": estilista,
@@ -253,54 +268,93 @@ else:
         else:
             st.write("💡 Ingresa el nombre de la clienta para cargar la interfaz de registro.")
 
-    # --- ⚙️ SECCIÓN 3: ADMINISTRACIÓN SEGURA (TENANT LEVEL) ---
-    elif opcion == "⚙️ Administrar Sistema":
+    # --- ⚙️ SECCIÓN 3: ADMINISTRACIÓN SEGURA (TENANT LEVEL CON GESTIÓN DE EMPLEADAS ILIMITADAS N) ---
+    elif opcion == "⚙️ Administrar Sistema" and rol_usuario == "administrador":
         st.title("⚙️ Consola de Administración Privada")
         st.write(f"Espacio corporativo de: **{st.session_state['nombre_negocio']}**")
         
-        # Consultamos únicamente las clientas de este negocio logueado
-        mis_clientes = list(clientes_col.find({"tenant_id": tenant_id}))
+        tab_usuarios, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "📥 Copias de Respaldo", "🚨 Zona de Baja"])
         
-        if mis_clientes:
-            tabla_datos = []
-            for c in mis_clientes:
-                tabla_datos.append({
-                    "🔑 Clave Interna": str(c["_id"]),
-                    "👤 Clienta": c["nombre"],
-                    "📞 Teléfono": c["telefono"]
-                })
+        # --- SUB-TAB 1: CONTROL DE EMPLEADAS (REGISTRO N) ---
+        with tab_usuarios:
+            st.subheader("🏗️ Registrar Nueva Trabajadora / Estilista")
+            st.write("Crea accesos individuales ilimitados para tu personal vinculados a tu tenant.")
             
-            st.subheader("📋 Tu Catálogo de Clientes Activos")
-            st.dataframe(pd.DataFrame(tabla_datos), use_container_width=True)
-            
-            st.markdown("---")
-            st.subheader("📥 Generar Copia de Respaldo Local")
-            st.write("Extrae un archivo plano ejecutable de tus datos de sucursal.")
-            
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                df_c_descarga = pd.DataFrame(tabla_datos)
-                csv_c = df_c_descarga.to_csv(index=False).encode('utf-8')
-                st.download_button("👥 Exportar Base de Clientes (CSV)", csv_c, "mis_clientes.csv", "text/csv")
-            
-            with col_btn2:
-                mis_visitas = list(visitas_col.find({"tenant_id": tenant_id}))
-                if mis_visitas:
-                    tabla_visitas = []
-                    for v in mis_visitas:
-                        tabla_visitas.append({
-                            "ID Visita": str(v["_id"]),
-                            "ID Cliente": str(v["id_cliente"]),
-                            "Fecha": v["fecha"],
-                            "Servicio": v["servicio"],
-                            "Fórmula": v["formula"],
-                            "Observaciones": v["observaciones"]
+            with st.form("form_alta_empleado", clear_on_submit=True):
+                nom_usuario_emp = st.text_input("Crea el Usuario de la empleada (sin espacios):").strip().lower()
+                pass_usuario_emp = st.text_input("Crea su Contraseña Temporal:", type="password")
+                
+                if st.form_submit_button("➕ Registrar Cuenta de Empleada"):
+                    if usuarios_col.find_one({"usuario": nom_usuario_emp}):
+                        st.error("❌ Este nombre de usuario ya existe en el sistema global. Elige otro.")
+                    elif nom_usuario_emp and pass_usuario_emp:
+                        usuarios_col.insert_one({
+                            "negocio": st.session_state['nombre_negocio'],
+                            "usuario": nom_usuario_emp,
+                            "password": encriptar_pass(pass_usuario_emp),
+                            "rol": "empleado", 
+                            "tenant_id": tenant_id # Se amarra en automático al negocio del administrador
                         })
-                    df_v_descarga = pd.DataFrame(tabla_visitas)
-                    csv_v = df_v_descarga.to_csv(index=False).encode('utf-8')
-                    st.download_button("📜 Exportar Registro de Visitas (CSV)", csv_v, "mi_historial.csv", "text/csv")
+                        st.success(f"✅ ¡Cuenta de empleada para '**{nom_usuario_emp}**' creada exitosamente!")
+                    else:
+                        st.warning("⚠️ Completa los campos del formulario.")
             
             st.markdown("---")
+            st.subheader("👥 Plantilla de Empleados en tu Sucursal")
+            lista_empleados = list(usuarios_col.find({"tenant_id": tenant_id}))
+            if lista_empleados:
+                tabla_emp = []
+                for emp in lista_empleados:
+                    tabla_emp.append({
+                        "Usuario": emp["usuario"],
+                        "Rango de Acceso": emp.get("rol", "empleado").upper()
+                    })
+                st.table(pd.DataFrame(tabla_emp))
+
+        # --- SUB-TAB 2: RESPALDOS CLOUD ---
+        with tab_datos:
+            mis_clientes = list(clientes_col.find({"tenant_id": tenant_id}))
+            
+            if mis_clientes:
+                tabla_datos = []
+                for c in mis_clientes:
+                    tabla_datos.append({
+                        "🔑 Clave Interna": str(c["_id"]),
+                        "👤 Clienta": c["nombre"],
+                        "📞 Teléfono": c["telefono"]
+                    })
+                
+                st.subheader("📋 Tu Catálogo de Clientes Activos")
+                st.dataframe(pd.DataFrame(tabla_datos), use_container_width=True)
+                
+                st.markdown("---")
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    df_c_descarga = pd.DataFrame(tabla_datos)
+                    csv_c = df_c_descarga.to_csv(index=False).encode('utf-8')
+                    st.download_button("👥 Exportar Base de Clientes (CSV)", csv_c, "mis_clientes.csv", "text/csv")
+                
+                with col_btn2:
+                    mis_visitas = list(visitas_col.find({"tenant_id": tenant_id}))
+                    if mis_visitas:
+                        tabla_visitas = []
+                        for v in mis_visitas:
+                            tabla_visitas.append({
+                                "ID Visita": str(v["_id"]),
+                                "ID Cliente": str(v["id_cliente"]),
+                                "Fecha": v["fecha"],
+                                "Servicio": v["servicio"],
+                                "Fórmula": v["formula"],
+                                "Observaciones": v["observaciones"]
+                            })
+                        df_v_descarga = pd.DataFrame(tabla_visitas)
+                        csv_v = df_v_descarga.to_csv(index=False).encode('utf-8')
+                        st.download_button("📜 Exportar Registro de Visitas (CSV)", csv_v, "mi_historial.csv", "text/csv")
+            else:
+                st.info("💼 No tienes clientas dadas de alta en tu base de datos todavía.")
+
+        # --- SUB-TAB 3: ZONA DE ELIMINACIÓN ---
+        with tab_eliminar:
             st.subheader("🚨 Remover Registro del Servidor")
             id_borrar_str = st.text_input("💥 Clave Interna de la clienta a dar de baja:")
             
@@ -308,7 +362,6 @@ else:
                 if id_borrar_str:
                     try:
                         obj_id = ObjectId(id_borrar_str)
-                        # Verificación de seguridad: Asegurarse de que el registro pertenece al tenant actual
                         control_verificacion = clientes_col.find_one({"_id": obj_id, "tenant_id": tenant_id})
                         
                         if control_verificacion:
@@ -322,5 +375,3 @@ else:
                         st.error("❌ La clave ingresada no pertenece al formato nativo del clúster.")
                 else:
                     st.warning("⚠️ Por favor introduce una clave válida para proceder.")
-        else:
-            st.info("💼 No tienes clientas dadas de alta en tu base de datos todavía.")
