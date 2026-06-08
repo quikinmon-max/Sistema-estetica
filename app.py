@@ -71,7 +71,7 @@ if st.session_state['usuario_id'] is None:
         </style>
         """, unsafe_allow_html=True)
 
-    st.title("🔐 Portal de Administración SaaS")
+    st.title("🔐 Portal de Administración")
     st.write("Bienvenido al centro de gestión inteligente para salones de belleza y estéticas.")
     
     tab_login, tab_registro = st.tabs(["👤 Iniciar Sesión", "🏢 Registrar Mi Negocio"])
