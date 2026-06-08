@@ -79,7 +79,7 @@ if st.session_state['usuario_id'] is None:
     
     tab_login, tab_registro = st.tabs(["👤 Iniciar Sesión", "🏢 Registrar Mi Negocio"])
     
-    # --- PESTAÑA 1: INICIAR SESIÓN (CON FILTRO DE HORARIO CORREGIDO) ---
+    # --- PESTAÑA 1: INICIAR SESIÓN ---
     with tab_login:
         with st.form("form_login"):
             usuario_login = st.text_input("Usuario:").strip().lower()
@@ -95,7 +95,7 @@ if st.session_state['usuario_id'] is None:
                     rol = user_db.get("rol", "empleado")
                     tenant_id_actual = user_db["tenant_id"]
                     
-                    # 🕒 VALIDACIÓN DE HORARIO PARA EMPLEADAS (Formato de Tiempo Nativo)
+                    # 🕒 VALIDACIÓN DE HORARIO PARA EMPLEADAS
                     if rol == "empleado":
                         admin_negocio = usuarios_col.find_one({"_id": ObjectId(tenant_id_actual), "rol": "administrador"})
                         
@@ -104,7 +104,6 @@ if st.session_state['usuario_id'] is None:
                                 h_apertura_str = admin_negocio.get("hora_apertura", "09:00")
                                 h_cierre_str = admin_negocio.get("hora_cierre", "20:00")
                                 
-                                # Convertimos strings y hora actual a objetos datetime.time para comparar sin errores
                                 hora_apertura = datetime.strptime(h_apertura_str, "%H:%M").time()
                                 hora_cierre = datetime.strptime(h_cierre_str, "%H:%M").time()
                                 hora_actual = datetime.now().time()
@@ -116,7 +115,6 @@ if st.session_state['usuario_id'] is None:
                                 st.error(f"⚠️ Error al verificar el formato de horario del salón: {time_err}. Contacta al administrador.")
                                 st.stop()
                     
-                    # Si pasa la validación o es Admin, se guardan los datos en sesión
                     st.session_state['usuario_id'] = str(user_db["_id"])
                     st.session_state['nombre_negocio'] = user_db["negocio"]
                     st.session_state['usuario_login'] = user_db["usuario"]
@@ -145,7 +143,6 @@ if st.session_state['usuario_id'] is None:
                 if usuarios_col.find_one({"usuario": nuevo_usuario}):
                     st.error("❌ Ese nombre de usuario ya está registrado por otra estética. Intenta con otro.")
                 elif nuevo_negocio and nuevo_usuario and nueva_pass:
-                    # Validación rápida de formato de hora antes de guardar
                     try:
                         datetime.strptime(h_apertura, "%H:%M")
                         datetime.strptime(h_cierre, "%H:%M")
@@ -198,7 +195,7 @@ else:
         st.session_state['fondo'] = None
         st.rerun()
 
-    # --- 🔍 SECCIÓN 1: HISTORIAL SEGMENTADO POR NEGOCIO ---
+    # --- 🔍 SECCIÓN 1: HISTORIAL SEGMENTADO ---
     if opcion == "🔍 Buscar y Ver Historial":
         st.title("📂 Expediente de Clientas")
         nom_b = st.text_input("🔍 Escribe el nombre de la clienta:")
@@ -239,23 +236,35 @@ else:
             else:
                 st.warning("🕵️‍♂️ No se encontró ninguna clienta activa con ese nombre en tu negocio.")
 
-    # --- 📝 SECCIÓN 2: REGISTRAR VISITA CON SEGMENTACIÓN ---
+    # --- 📝 SECCIÓN 2: REGISTRAR VISITA (CON CONFIGURACIÓN DE ROLES PARA EDICIÓN) ---
     elif opcion == "📝 Registrar Visita":
         st.title("📝 Control de Visita")
-        nombre_input = st.text_input("👤 Nombre completo de la clienta:")
         
-        if nombre_input:
-            existe = clientes_col.find_one({"tenant_id": tenant_id, "nombre": nombre_input})
+        # El nombre inicial siempre se escribe para buscar o dar de alta
+        nombre_buscar = st.text_input("👤 Nombre completo de la clienta:").strip()
+        
+        if nombre_buscar:
+            existe = clientes_col.find_one({"tenant_id": tenant_id, "nombre": {"$regex": f"^{nombre_buscar}$", "$options": "i"}})
             
             with st.form("form_registro", clear_on_submit=True):
+                # 🔒 CONFIGURACIÓN ADAPTATIVA DE BLOQUEO DE EDICIÓN 🔒
                 if existe:
-                    st.success(f"✨ Clienta existente. ¿Deseas refrescar su foto de perfil?")
-                    telefono = existe["telefono"]
+                    if rol_usuario == "empleado":
+                        st.warning("🔒 Clienta existente. Los datos generales están bloqueados. Solo el Administrador puede modificarlos.")
+                        # Empleada: ve los datos pero deshabilitados
+                        nombre_final = st.text_input("Nombre de la Clienta:", value=existe["nombre"], disabled=True)
+                        telefono = st.text_input("📞 Teléfono:", value=existe["telefono"], disabled=True)
+                    else:
+                        st.success(f"✨ ¡Clienta reconocida! Rango de Administrador activo: Puedes editar sus datos generales si lo requieres.")
+                        # Administrador: puede editar el nombre y teléfono guardado
+                        nombre_final = st.text_input("Nombre de la Clienta:", value=existe["nombre"])
+                        telefono = st.text_input("📞 Teléfono:", value=existe["telefono"])
                 else:
                     st.info("🆕 ¡Nueva clienta detectada en tu base de datos! Completa los campos:")
+                    nombre_final = st.text_input("Nombre de la Clienta:", value=nombre_buscar)
                     telefono = st.text_input("📞 Teléfono:")
                 
-                foto_up = st.file_uploader("📷 Foto de Expediente", type=["jpg", "png", "jpeg"])
+                foto_up = st.file_uploader("📷 Foto de Expediente (Opcional)", type=["jpg", "png", "jpeg"])
 
                 col_a, col_b = st.columns(2)
                 with col_a:
@@ -275,22 +284,32 @@ else:
                     
                     if existe:
                         id_c = existe["_id"]
-                        if img_str:
-                            clientes_col.update_one({"_id": id_c}, {"$set": {"foto_perfil": img_str}})
+                        # Si es administrador, actualiza cambios de texto e imagen si subió una
+                        if rol_usuario == "administrador":
+                            actualizacion = {"nombre": nombre_final, "telefono": telefono}
+                            if img_str:
+                                actualizacion["foto_perfil"] = img_str
+                            clientes_col.update_one({"_id": id_c}, {"$set": actualizacion})
+                        else:
+                            # Si es empleada, solo le permitimos actualizar la foto de perfil de la ficha
+                            if img_str:
+                                clientes_col.update_one({"_id": id_c}, {"$set": {"foto_perfil": img_str}})
                     else:
-                        if nombre_input and telefono:
+                        # Registro de una clienta totalmente nueva (Abierto para ambos rangos)
+                        if nombre_final and telefono:
                             nuevo_cliente = {
                                 "tenant_id": tenant_id,
-                                "nombre": nombre_input,
+                                "nombre": nombre_final,
                                 "telefono": telefono,
                                 "foto_perfil": img_str
                             }
                             resultado = clientes_col.insert_one(nuevo_cliente)
                             id_c = resultado.inserted_id
                         else:
-                            st.error("🛑 El nombre y teléfono son requeridos para altas de clientes.")
+                            st.error("🛑 El nombre y teléfono son requeridos para dar de alta fichas nuevas.")
                             st.stop()
                     
+                    # Se inserta la visita de forma normal ligada al ID correspondiente
                     nueva_visita = {
                         "tenant_id": tenant_id,
                         "id_cliente": id_c,
@@ -301,9 +320,9 @@ else:
                         "observaciones": obs
                     }
                     visitas_col.insert_one(nueva_visita)
-                    st.success("✅ ¡Servicio guardado en la nube de tu sucursal de forma exitosa!")
+                    st.success("✅ ¡Visita y expediente sincronizados en la nube de forma exitosa!")
         else:
-            st.write("💡 Ingresa el nombre de la clienta para cargar la interfaz de registro.")
+            st.write("💡 Ingresa el nombre de la clienta arriba para cargar la interfaz de registro.")
 
     # --- ⚙️ SECCIÓN 3: ADMINISTRACIÓN SEGURA (TENANT LEVEL) ---
     elif opcion == "⚙️ Administrar Sistema" and rol_usuario == "administrador":
@@ -312,7 +331,7 @@ else:
         
         tab_usuarios, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "📥 Copias de Respaldo", "🚨 Zona de Baja"])
         
-        # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS (ALTA, RESETEO Y ELIMINACIÓN) ---
+        # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS ---
         with tab_usuarios:
             st.subheader("🏗️ Registrar o Actualizar Contraseña de Trabajadora")
             st.info("💡 **Tip de Soporte:** Si una empleada olvida su contraseña, escribe su mismo usuario aquí arriba junto con una contraseña nueva. El sistema la actualizará de inmediato sin borrar sus datos.")
