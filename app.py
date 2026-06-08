@@ -54,7 +54,7 @@ if 'usuario_id' not in st.session_state:
     st.session_state['tenant_id'] = None
     st.session_state['plan'] = None  
     st.session_state['logo'] = None
-    st.session_state['fondo'] = None
+    st.session_state['fondo_color'] = "#0d0d0d"  # 👈 Por defecto el tema oscuro original
 
 if db is None:
     st.error("🛑 Error crítico: No se pudo conectar con el servidor de la base de datos en la nube.")
@@ -65,50 +65,32 @@ clientes_col = db["clientes"]
 visitas_col = db["visitas"]
 
 # ==========================================
-# 🎨 APLICACIÓN DE ESTILOS VISUALES DINÁMICOS (Responsivo para Celulares y PC)
+# 🎨 APLICACIÓN DE ESTILOS VISUALES DINÁMICOS (Color Hexagonal y Logo)
 # ==========================================
 def aplicar_estilos_personalizados():
-    if st.session_state['fondo']:
-        st.markdown(f"""
-            <style>
-            /* 1. Base del fondo para computadoras y tablets (Modo Horizontal) */
-            .stApp {{
-                background-image: url("data:image/png;base64,{st.session_state['fondo']}");
-                background-size: cover;
-                background-position: center;
-                background-attachment: fixed;
-                color: #e0e0e0;
-            }}
-            
-            /* 2. Media Query: Ajustes automáticos si entran desde un TELÉFONO (Pantalla Vertical Móvil) */
-            @media (max-width: 768px) {{
-                .stApp {{
-                    background-size: auto 100%; /* Evita deformaciones o estiramientos feos en el cel */
-                    background-position: center top; /* Centra el diseño arriba para que luzca la marca */
-                    background-repeat: no-repeat;
-                    background-color: #0d0d0d; /* Rellena con negro abajo si falta scroll */
-                }}
-                
-                /* Opacidad de contraste en formularios para que se lean perfecto bajo el sol en la calle */
-                .stForm {{
-                    background-color: rgba(13, 13, 13, 0.85) !important;
-                    border: 1px solid #4b0082 !important;
-                    border-radius: 12px;
-                    padding: 15px !important;
-                }}
-            }}
-            
-            .stButton>button {{ background-color: #4b0082; color: white; width: 100%; border-radius: 8px; }}
-            </style>
-            """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-            <style>
-            .stApp { background-color: #0d0d0d; color: #e0e0e0; }
-            .stButton>button { background-color: #4b0082; color: white; width: 100%; border-radius: 8px; }
-            </style>
-            """, unsafe_allow_html=True)
+    color_actual = st.session_state['fondo_color']
+    
+    # Inyectamos el color seleccionado interactivamente por el Administrador
+    st.markdown(f"""
+        <style>
+        .stApp {{
+            background-color: {color_actual} !important;
+            color: #e0e0e0;
+        }}
+        
+        /* Asegura el contraste responsivo de los formularios en móviles y PC */
+        .stForm {{
+            background-color: rgba(20, 20, 20, 0.6) !important;
+            border: 1px solid #4b0082 !important;
+            border-radius: 12px;
+            padding: 20px !important;
+        }}
+        
+        .stButton>button {{ background-color: #4b0082; color: white; width: 100%; border-radius: 8px; }}
+        </style>
+        """, unsafe_allow_html=True)
 
+    # Mostrar logotipo en la barra lateral si existe
     if st.session_state['logo']:
         try:
             st.sidebar.image(f"data:image/png;base64,{st.session_state['logo']}", use_container_width=True)
@@ -146,10 +128,11 @@ if st.session_state['usuario_id'] is None:
                     rol = user_db.get("rol", "empleado")
                     tenant_id_actual = user_db["tenant_id"]
                     
+                    # Buscamos la configuración del admin dueño para heredar el color y el logo
                     admin_negocio = usuarios_col.find_one({"_id": ObjectId(tenant_id_actual), "rol": "administrador"})
                     plan_negocio = admin_negocio.get("plan", "lite") if admin_negocio else "lite"
                     
-                    # 🕒 VALIDACIÓN DE HORARIO CON MÉXICO TIMEZONE
+                    # 🕒 VALIDACIÓN DE HORARIO MÉXICO
                     if rol == "empleado" and plan_negocio in ["pro", "enterprise"]:
                         if admin_negocio:
                             try:
@@ -176,7 +159,7 @@ if st.session_state['usuario_id'] is None:
                     st.session_state['tenant_id'] = tenant_id_actual
                     st.session_state['plan'] = plan_negocio  
                     st.session_state['logo'] = admin_negocio.get("logo", None) if admin_negocio else None
-                    st.session_state['fondo'] = admin_negocio.get("fondo", None) if admin_negocio else None
+                    st.session_state['fondo_color'] = admin_negocio.get("fondo_color", "#0d0d0d") if admin_negocio else "#0d0d0d"
                     st.success("¡Acceso concedido! Cargando panel... 🎉")
                     st.rerun()
                 else:
@@ -219,7 +202,7 @@ if st.session_state['usuario_id'] is None:
                         "hora_apertura": h_apertura,
                         "hora_cierre": h_cierre,
                         "logo": None,
-                        "fondo": None
+                        "fondo_color": "#0d0d0d"
                     })
                     st.success(f"✨ ¡Salón inicializado en Plan {plan_seleccionado.upper()} con éxito! Ya puedes iniciar sesión.")
                 else:
@@ -254,10 +237,10 @@ else:
         st.session_state['tenant_id'] = None
         st.session_state['plan'] = None
         st.session_state['logo'] = None
-        st.session_state['fondo'] = None
+        st.session_state['fondo_color'] = "#0d0d0d"
         st.rerun()
 
-    # --- 🔍 SECCIÓN 1: HISTORIAL SEGMENTADO CON CONTROL PARA HOMÓNIMOS ---
+    # --- 🔍 SECCIÓN 1: HISTORIAL ---
     if opcion == "🔍 Buscar y Ver Historial":
         st.title("📂 Expediente de Clientas")
         nom_b = st.text_input("🔍 Escribe el nombre de la clienta a buscar:").strip()
@@ -309,7 +292,7 @@ else:
             else:
                 st.warning("🕵️‍♂️ No se encontró ninguna clienta activa con ese nombre.")
 
-    # --- 📝 SECCIÓN 2: REGISTRAR VISITA CON INTERFAZ DINÁMICA ---
+    # --- 📝 SECCIÓN 2: REGISTRAR VISITA ---
     elif opcion == "📝 Registrar Visita":
         st.title("📝 Control de Visita")
         nombre_buscar = st.text_input("👤 Escribe el nombre completo de la clienta:").strip()
@@ -410,7 +393,7 @@ else:
         st.title("⚙️ Consola de Administración Privada")
         st.write(f"Espacio corporativo de: **{st.session_state['nombre_negocio']}** | Plan: **{plan_actual.upper()}**")
         
-        tab_usuarios, tab_multimedia, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "🎨 Personalizar App (Logo/Fondo)", "📥 Catálogo y Respaldos", "🚨 Zona de Baja"])
+        tab_usuarios, tab_multimedia, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "🎨 Identidad Corporativa (Logo/Color)", "📥 Catálogo y Respaldos", "🚨 Zona de Baja"])
         
         # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS ---
         with tab_usuarios:
@@ -484,17 +467,23 @@ else:
             else:
                 st.info("ℹ️ No hay personal registrado.")
 
-        # --- SUB-TAB 2: PERSONALIZAR APP desde Cel o PC ---
+        # --- 🎨 SUB-TAB 2: IDENTIDAD CORPORATIVA (LOGO Y PALETA DE COLORES INTERACTIVA) ---
         with tab_multimedia:
-            st.subheader("🖼️ Identidad Visual de tu Sucursal")
-            st.write("Sube los archivos de imagen para personalizar el portal de administración.")
+            st.subheader("🎨 Personalización Visual del Portal")
+            st.write("Sube el logotipo de tu marca y selecciona interactivamente el color de fondo para la aplicación móvil y de escritorio.")
+            
+            # Cargamos el color guardado actualmente para que el picker inicie en esa posición
+            color_inicial = st.session_state['fondo_color']
             
             with st.form("form_multimedia", clear_on_submit=False):
-                nuevo_logo_file = st.file_uploader("👑 Logotipo de la Estética (Recomendado: PNG sin fondo)", type=["png", "jpg", "jpeg"])
-                nuevo_fondo_file = st.file_uploader("🌌 Imagen de Fondo de Pantalla (Recomendado: HD 1920x1080)", type=["png", "jpg", "jpeg"])
+                nuevo_logo_file = st.file_uploader("👑 Logotipo de la Estética (PNG transparente recomendado)", type=["png", "jpg", "jpeg"])
                 
-                if st.form_submit_button("🎨 Aplicar Cambios de Imagen"):
-                    cambios = {}
+                # 🌈 NUEVO: Selector de color interactivo
+                color_elegido = st.color_picker("🌌 Elige el color de fondo para tu app:", value=color_inicial)
+                
+                if st.form_submit_button("💾 Guardar Configuración de Marca"):
+                    cambios = {"fondo_color": color_elegido}
+                    st.session_state['fondo_color'] = color_elegido
                     
                     if nuevo_logo_file is not None:
                         logo_str = imagen_a_base64(nuevo_logo_file, max_size=(400, 400))
@@ -502,27 +491,18 @@ else:
                             cambios["logo"] = logo_str
                             st.session_state['logo'] = logo_str
                             
-                    if nuevo_fondo_file is not None:
-                        fondo_str = imagen_a_base64(nuevo_fondo_file, max_size=(1280, 720))
-                        if fondo_str:
-                            cambios["fondo"] = fondo_str
-                            st.session_state['fondo'] = fondo_str
-                            
-                    if cambios:
-                        usuarios_col.update_one({"_id": ObjectId(st.session_state['usuario_id'])}, {"$set": cambios})
-                        st.success("✨ ¡Identidad visual actualizada!")
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ No has seleccionado ningún archivo nuevo.")
+                    usuarios_col.update_one({"_id": ObjectId(st.session_state['usuario_id'])}, {"$set": cambios})
+                    st.success("✨ ¡Identidad de marca guardada! Los cambios se aplicaron a toda la sucursal.")
+                    st.rerun()
             
-            if st.button("🗑️ Restablecer Diseño por Defecto"):
-                usuarios_col.update_one({"_id": ObjectId(st.session_state['usuario_id'])}, {"$set": {"logo": None, "fondo": None}})
+            if st.button("🗑️ Restablecer Valores de Fábrica"):
+                usuarios_col.update_one({"_id": ObjectId(st.session_state['usuario_id'])}, {"$set": {"logo": None, "fondo_color": "#0d0d0d"}})
                 st.session_state['logo'] = None
-                st.session_state['fondo'] = None
-                st.success("🔄 Diseño restablecido al tema oscuro original.")
+                st.session_state['fondo_color'] = "#0d0d0d"
+                st.success("🔄 Diseño restablecido al negro mate original.")
                 st.rerun()
 
-        # --- SUB-TAB 3: CATÁLOGO CON FILTRO DE BÚSQUEDA ---
+        # --- SUB-TAB 3: CATÁLOGO ---
         with tab_datos:
             st.subheader("📋 Tu Catálogo de Clientes Activos")
             filtro_nombre = st.text_input("🔍 Buscar cliente por nombre en el catálogo (Filtro rápido):").strip()
