@@ -82,7 +82,7 @@ if st.session_state['usuario_id'] is None:
             usuario_login = st.text_input("Usuario:").strip().lower()
             pass_login = st.text_input("Contraseña:", type="password")
             
-            if st.form_submit_button("🚀 Entrar al Sistema"):
+            if st.form_submit_button("Entrar al Sistema"):
                 user_db = usuarios_col.find_one({
                     "usuario": usuario_login, 
                     "password": encriptar_pass(pass_login)
@@ -106,7 +106,7 @@ if st.session_state['usuario_id'] is None:
             nuevo_usuario = st.text_input("Crea un Usuario de Administrador (sin espacios) *").strip().lower()
             nueva_pass = st.text_input("Crea una Contraseña Segura *", type="password")
             
-            if st.form_submit_button("🏗️ Clonar e Inicializar Sistema"):
+            if st.form_submit_button("Agregar Negocio"):
                 if usuarios_col.find_one({"usuario": nuevo_usuario}):
                     st.error("❌ Ese nombre de usuario ya está registrado por otra estética. Intenta con otro.")
                 elif nuevo_negocio and nuevo_usuario and nueva_pass:
@@ -130,7 +130,6 @@ else:
 
     # Menú Lateral Personalizado
     st.sidebar.title(f"👑 {st.session_state['nombre_negocio']}")
-    st.sidebar.write(f"🟢 Conectado como: **{st.session_state['usuario_id'][:8]}...**")
     
     opcion = st.sidebar.radio("Navegación:", [
         "🔍 Buscar y Ver Historial", 
@@ -139,7 +138,7 @@ else:
     ])
     
     st.sidebar.markdown("---")
-    if st.sidebar.button("🚪 Salir del Portal"):
+    if st.sidebar.button("🚪 Cerrar Sesión"):
         st.session_state['usuario_id'] = None
         st.session_state['nombre_negocio'] = None
         st.session_state['logo'] = None
