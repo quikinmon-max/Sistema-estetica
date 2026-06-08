@@ -9,7 +9,8 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 
 # Configuración única de página combinando tu diseño
-st.set_page_config(layout="wide", page_title="Esytetic Manager Pro", page_icon="✂️")
+st.set_page_config(layout="wide", page_title="Aesthetics Manager Pro", page_icon="✂️")
+st.set_page_config(layout="wide", page_title="Aestetic Manager Pro")
 
 # 1. 🔑 FUNCIÓN ENCRIPTA CONTRASEÑAS (SHA-256)
 def encriptar_pass(password):
