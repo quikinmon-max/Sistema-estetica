@@ -7,7 +7,7 @@ import pandas as pd
 import hashlib
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-import pytz
+import pytz  
 
 # Configuración única de página combinando tu diseño definitivo
 st.set_page_config(layout="wide", page_title="Aesthetic Manager Pro", page_icon="✂️")
@@ -30,12 +30,12 @@ def obtener_conexion_mongo():
 
 db = obtener_conexion_mongo()
 
-# 3. 📸 FUNCIÓN PARA ENCOGER Y CONVERTIR IMAGEN (Estabilidad móvil)
-def imagen_a_base64(imagen_archivo):
+# 3. 📸 FUNCIÓN PARA ENCOGER Y CONVERTIR IMAGEN A BASE64
+def imagen_a_base64(imagen_archivo, max_size=(300, 300)):
     if imagen_archivo is not None:
         try:
             img = Image.open(imagen_archivo)
-            img.thumbnail((300, 300))
+            img.thumbnail(max_size)
             buffered = io.BytesIO()
             img.save(buffered, format="PNG", optimize=True)
             return base64.b64encode(buffered.getvalue()).decode()
@@ -60,10 +60,40 @@ if db is None:
     st.error("🛑 Error crítico: No se pudo conectar con el servidor de la base de datos en la nube.")
     st.stop()
 
-# Inicializamos las colecciones core del ecosistema
 usuarios_col = db["usuarios"]
 clientes_col = db["clientes"]
 visitas_col = db["visitas"]
+
+# ==========================================
+# 🎨 APLICACIÓN DE ESTILOS VISUALES DINÁMICOS
+# ==========================================
+def aplicar_estilos_personalizados():
+    if st.session_state['fondo']:
+        st.markdown(f"""
+            <style>
+            .stApp {{
+                background-image: url("data:image/png;base64,{st.session_state['fondo']}");
+                background-size: cover;
+                background-position: center;
+                background-attachment: fixed;
+                color: #e0e0e0;
+            }}
+            .stButton>button {{ background-color: #4b0082; color: white; width: 100%; border-radius: 8px; }}
+            </style>
+            """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+            <style>
+            .stApp { background-color: #0d0d0d; color: #e0e0e0; }
+            .stButton>button { background-color: #4b0082; color: white; width: 100%; border-radius: 8px; }
+            </style>
+            """, unsafe_allow_html=True)
+
+    if st.session_state['logo']:
+        try:
+            st.sidebar.image(f"data:image/png;base64,{st.session_state['logo']}", use_container_width=True)
+        except Exception:
+            pass
 
 # ==========================================
 # FLUX A: PORTAL DE ACCESO (LOG OUT STATE)
@@ -81,7 +111,6 @@ if st.session_state['usuario_id'] is None:
     
     tab_login, tab_registro = st.tabs(["👤 Iniciar Sesión", "🏢 Registrar Mi Negocio"])
     
-    # --- PESTAÑA 1: INICIAR SESIÓN ---
     with tab_login:
         with st.form("form_login"):
             usuario_login = st.text_input("Usuario:").strip().lower()
@@ -100,7 +129,6 @@ if st.session_state['usuario_id'] is None:
                     admin_negocio = usuarios_col.find_one({"_id": ObjectId(tenant_id_actual), "rol": "administrador"})
                     plan_negocio = admin_negocio.get("plan", "lite") if admin_negocio else "lite"
                     
-                    # 🕒 VALIDACIÓN DE HORARIO: Con corrección de Zona Horaria de México
                     if rol == "empleado" and plan_negocio in ["pro", "enterprise"]:
                         if admin_negocio:
                             try:
@@ -110,12 +138,11 @@ if st.session_state['usuario_id'] is None:
                                 hora_apertura = datetime.strptime(h_apertura_str, "%H:%M").time()
                                 hora_cierre = datetime.strptime(h_cierre_str, "%H:%M").time()
                                 
-                                # 🔥 SOLUCIÓN CRÍTICA: Forzamos la hora local de México en lugar de UTC del servidor cloud
                                 zona_mx = pytz.timezone("America/Mexico_City")
                                 hora_actual = datetime.now(zona_mx).time()
                                 
                                 if not (hora_apertura <= hora_actual <= hora_cierre):
-                                    st.error(f"🛑 Acceso Denegado: El horario de acceso para empleadas en este salón es de {h_apertura_str} a {h_cierre_str}. Fuera de este horario el sistema permanece cerrado por seguridad.")
+                                    st.error(f"🛑 Acceso Denegado: El horario de acceso para empleadas en este salón es de {h_apertura_str} a {h_cierre_str}.")
                                     st.stop()
                             except Exception as time_err:
                                 st.error(f"⚠️ Error al verificar el formato de horario del salón: {time_err}.")
@@ -127,14 +154,13 @@ if st.session_state['usuario_id'] is None:
                     st.session_state['rol'] = rol
                     st.session_state['tenant_id'] = tenant_id_actual
                     st.session_state['plan'] = plan_negocio  
-                    st.session_state['logo'] = user_db.get("logo", None)
-                    st.session_state['fondo'] = user_db.get("fondo", "#0d0d0d")
+                    st.session_state['logo'] = admin_negocio.get("logo", None) if admin_negocio else None
+                    st.session_state['fondo'] = admin_negocio.get("fondo", None) if admin_negocio else None
                     st.success("¡Acceso concedido! Cargando panel... 🎉")
                     st.rerun()
                 else:
                     st.error("❌ Usuario o contraseña incorrectos.")
                         
-    # --- PESTAÑA 2: REGISTRAR NUEVO NEGOCIO ---
     with tab_registro:
         st.write("🚀 Crea una infraestructura en la nube exclusiva para tu estética en un minuto.")
         with st.form("form_registro_negocio"):
@@ -172,7 +198,7 @@ if st.session_state['usuario_id'] is None:
                         "hora_apertura": h_apertura,
                         "hora_cierre": h_cierre,
                         "logo": None,
-                        "fondo": "#0d0d0d"
+                        "fondo": None
                     })
                     st.success(f"✨ ¡Salón inicializado en Plan {plan_seleccionado.upper()} con éxito! Ya puedes iniciar sesión.")
                 else:
@@ -186,7 +212,8 @@ else:
     rol_usuario = st.session_state['rol']
     plan_actual = st.session_state['plan']
 
-    # Menú Lateral Personalizado
+    aplicar_estilos_personalizados()
+
     st.sidebar.title(f"👑 {st.session_state['nombre_negocio']}")
     st.sidebar.write(f"👤 Usuario: **{st.session_state['usuario_login']}**")
     st.sidebar.write(f"📦 Plan Activo: **{plan_actual.upper()}**")
@@ -209,67 +236,113 @@ else:
         st.session_state['fondo'] = None
         st.rerun()
 
-    # --- 🔍 SECCIÓN 1: HISTORIAL SEGMENTADO ---
+    # --- 🔍 SECCIÓN 1: HISTORIAL SEGMENTADO CON LISTA INTERACTIVA PARA HOMÓNIMOS ---
     if opcion == "🔍 Buscar y Ver Historial":
         st.title("📂 Expediente de Clientas")
-        nom_b = st.text_input("🔍 Escribe el nombre de la clienta:")
+        nom_b = st.text_input("🔍 Escribe el nombre de la clienta a buscar:").strip()
         
         if nom_b:
-            cliente = clientes_col.find_one({
+            # Buscamos todas las coincidencias que contengan ese texto
+            coincidencias = list(clientes_col.find({
                 "tenant_id": tenant_id,
                 "nombre": {"$regex": nom_b, "$options": "i"}
-            })
+            }))
             
-            if cliente:
-                st.markdown("---")
-                col_info, col_foto = st.columns([2, 1])
-                with col_info:
-                    st.header(f"👤 Clienta: {cliente['nombre']}")
-                    st.subheader(f"📞 Teléfono: {cliente['telefono']}")
-                with col_foto:
-                    if "foto_perfil" in cliente and cliente["foto_perfil"]:
-                        try:
-                            st.image(f"data:image/png;base64,{cliente['foto_perfil']}", width=250)
-                        except:
-                            st.error("⚠️ Error de renderizado en la imagen.")
-                    else:
-                        st.image("https://via.placeholder.com/250?text=Sin+Foto+📷")
-
-                st.markdown("---")
-                st.subheader("📜 Historial de Visitas")
-                visitas = list(visitas_col.find({"tenant_id": tenant_id, "id_cliente": cliente["_id"]}).sort("fecha", 1))
+            if len(coincidencias) > 0:
+                cliente_seleccionado = None
                 
-                if visitas:
-                    for v in visitas:
-                        with st.expander(f"📅 Fecha: {v['fecha']}  |  💇‍♀️ Servicio: {v['servicio']}"):
-                            st.write(f"👤 **Atendida por:** {v['estilista']}")
-                            st.info(f"🧪 **Fórmula Aplicada:**\n\n{v['formula']}")
-                            st.write(f"📝 **Observaciones:** {v['observaciones']}")
+                # 💥 FUNCIÓN CLAVE: Si hay más de una persona con el mismo nombre o similar, hace una lista de selección
+                if len(coincidencias) > 1:
+                    st.info(f"💡 Se encontraron {len(coincidencias)} clientas que coinciden con tu búsqueda. Selecciona la correcta de la lista:")
+                    opciones_lista = {f"👤 {c['nombre']} (Teléfono: {c['telefono']})": c for c in coincidencias}
+                    seleccion = st.selectbox("🎯 Expedientes disponibles:", list(opciones_lista.keys()))
+                    cliente_seleccionado = opciones_lista[seleccion]
                 else:
-                    st.info("ℹ️ No hay visitas registradas para esta clienta.")
+                    # Si solo hay una coincidencia, la asigna directo sin preguntar
+                    cliente_seleccionado = coincidencias[0]
+                
+                # Despliegue de la ficha seleccionada al darle clic/elegirla
+                if cliente_seleccionado:
+                    st.markdown("---")
+                    col_info, col_foto = st.columns([2, 1])
+                    with col_info:
+                        st.header(f"👤 Clienta: {cliente_seleccionado['nombre']}")
+                        st.subheader(f"📞 Teléfono: {cliente_seleccionado['telefono']}")
+                    with col_foto:
+                        if "foto_perfil" in cliente_seleccionado and cliente_seleccionado["foto_perfil"]:
+                            try:
+                                st.image(f"data:image/png;base64,{cliente_seleccionado['foto_perfil']}", width=250)
+                            except:
+                                st.error("⚠️ Error de renderizado en la imagen.")
+                        else:
+                            st.image("https://via.placeholder.com/250?text=Sin+Foto+📷")
+
+                    st.markdown("---")
+                    st.subheader("📜 Historial de Visitas")
+                    visitas = list(visitas_col.find({"tenant_id": tenant_id, "id_cliente": cliente_seleccionado["_id"]}).sort("fecha", 1))
+                    
+                    if visitas:
+                        for v in visitas:
+                            with st.expander(f"📅 Fecha: {v['fecha']}  |  💇‍♀️ Servicio: {v['servicio']}"):
+                                st.write(f"👤 **Atendida por:** {v['estilista']}")
+                                st.info(f"🧪 **Fórmula Aplicada:**\n\n{v['formula']}")
+                                st.write(f"📝 **Observaciones:** {v['observaciones']}")
+                    else:
+                        st.info("ℹ️ No hay visitas registradas para esta clienta.")
             else:
                 st.warning("🕵️‍♂️ No se encontró ninguna clienta activa con ese nombre en tu negocio.")
 
-    # --- 📝 SECCIÓN 2: REGISTRAR VISITA ---
+    # --- 📝 SECCIÓN 2: REGISTRAR VISITA CON FILTRADO MULTI-CLIENTA ---
     elif opcion == "📝 Registrar Visita":
         st.title("📝 Control de Visita")
-        nombre_buscar = st.text_input("👤 Nombre completo de la clienta:").strip()
+        nombre_buscar = st.text_input("👤 Escribe el nombre completo de la clienta:").strip()
         
         if nombre_buscar:
-            existe = clientes_col.find_one({"tenant_id": tenant_id, "nombre": {"$regex": f"^{nombre_buscar}$", "$options": "i"}})
+            # Buscamos coincidencias aproximadas
+            coincidencias = list(clientes_col.find({
+                "tenant_id": tenant_id,
+                "nombre": {"$regex": f".*{nombre_buscar}.*", "$options": "i"}
+            }))
             
+            existe = None
+            es_nuevo_registro = False
+            
+            if len(coincidencias) > 1:
+                st.info(f"💡 Se detectaron {len(coincidencias)} clientas existentes con nombres similares. Elige una o selecciona 'Nueva Clienta':")
+                
+                # Creamos una lista interactiva incluyendo la opción de dar de alta como ficha nueva
+                opciones_registro = {"🆕 Registrar como una NUEVA clienta (Crear expediente)": "NUEVO"}
+                for c in coincidencias:
+                    opciones_registro[f"👤 Cargar ficha de: {c['nombre']} (Tel: {c['telefono']})"] = c
+                    
+                seleccion_reg = st.selectbox("🎯 ¿A quién deseas registrar el servicio?", list(opciones_registro.keys()))
+                
+                if opciones_registro[seleccion_reg] == "NUEVO":
+                    es_nuevo_registro = True
+                else:
+                    existe = opciones_registro[seleccion_reg]
+                    
+            elif len(coincidencias) == 1:
+                # Si solo hay una, cargamos la ficha automáticamente
+                existe = coincidencias[0]
+            else:
+                # Si no hay ninguna coincidencia, en automático se asume que es nueva
+                es_nuevo_registro = True
+            
+            # Formulario dinámico adaptativo
             with st.form("form_registro", clear_on_submit=True):
                 if existe:
+                    # Aplicamos candados según el rol y el plan contratado
                     if rol_usuario == "empleado" and plan_actual in ["pro", "enterprise"]:
                         st.warning("🔒 Los datos generales están bloqueados en este plan corporativo. Solo el Admin puede editarlos.")
                         nombre_final = st.text_input("Nombre de la Clienta:", value=existe["nombre"], disabled=True)
                         telefono = st.text_input("📞 Teléfono:", value=existe["telefono"], disabled=True)
                     else:
-                        st.success("✨ Modo de edición habilitado.")
+                        st.success("✨ Modo de edición de expediente habilitado.")
                         nombre_final = st.text_input("Nombre de la Clienta:", value=existe["nombre"])
                         telefono = st.text_input("📞 Teléfono:", value=existe["telefono"])
                 else:
-                    st.info("🆕 ¡Nueva clienta detectada!")
+                    st.info("🆕 ¡Nueva clienta detectada! Llena los campos para generar el expediente de base:")
                     nombre_final = st.text_input("Nombre de la Clienta:", value=nombre_buscar)
                     telefono = st.text_input("📞 Teléfono:")
                 
@@ -326,6 +399,7 @@ else:
                     }
                     visitas_col.insert_one(nueva_visita)
                     st.success("✅ Registro guardado correctamente.")
+                    st.rerun()
         else:
             st.write("💡 Ingresa el nombre de la clienta.")
 
@@ -334,7 +408,7 @@ else:
         st.title("⚙️ Consola de Administración Privada")
         st.write(f"Espacio corporativo de: **{st.session_state['nombre_negocio']}** | Plan: **{plan_actual.upper()}**")
         
-        tab_usuarios, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "📥 Catálogo y Respaldos", "🚨 Zona de Baja"])
+        tab_usuarios, tab_multimedia, tab_datos, tab_eliminar = st.tabs(["👥 Control de Empleadas", "🎨 Personalizar App (Logo/Fondo)", "📥 Catálogo y Respaldos", "🚨 Zona de Baja"])
         
         # --- SUB-TAB 1: GESTIÓN DE EMPLEADAS ---
         with tab_usuarios:
@@ -408,10 +482,47 @@ else:
             else:
                 st.info("ℹ️ No hay personal registrado.")
 
-        # --- SUB-TAB 2: CATÁLOGO CON FILTRO DE BÚSQUEDA ---
+        # --- SUB-TAB 2: PERSONALIZAR APP ---
+        with tab_multimedia:
+            st.subheader("🖼️ Identidad Visual de tu Sucursal")
+            st.write("Sube los archivos de imagen para personalizar el portal de administración.")
+            
+            with st.form("form_multimedia", clear_on_submit=False):
+                nuevo_logo_file = st.file_uploader("👑 Logotipo de la Estética (Recomendado: PNG sin fondo)", type=["png", "jpg", "jpeg"])
+                nuevo_fondo_file = st.file_uploader("🌌 Imagen de Fondo de Pantalla (Recomendado: HD 1920x1080)", type=["png", "jpg", "jpeg"])
+                
+                if st.form_submit_button("🎨 Aplicar Cambios de Imagen"):
+                    cambios = {}
+                    
+                    if nuevo_logo_file is not None:
+                        logo_str = imagen_a_base64(nuevo_logo_file, max_size=(400, 400))
+                        if logo_str:
+                            cambios["logo"] = logo_str
+                            st.session_state['logo'] = logo_str
+                            
+                    if nuevo_fondo_file is not None:
+                        fondo_str = imagen_a_base64(nuevo_fondo_file, max_size=(1280, 720))
+                        if fondo_str:
+                            cambios["fondo"] = fondo_str
+                            st.session_state['fondo'] = fondo_str
+                            
+                    if cambios:
+                        usuarios_col.update_one({"_id": ObjectId(st.session_state['usuario_id'])}, {"$set": cambios})
+                        st.success("✨ ¡Identidad visual actualizada!")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ No has seleccionado ningún archivo nuevo.")
+            
+            if st.button("🗑️ Restablecer Diseño por Defecto"):
+                usuarios_col.update_one({"_id": ObjectId(st.session_state['usuario_id'])}, {"$set": {"logo": None, "fondo": None}})
+                st.session_state['logo'] = None
+                st.session_state['fondo'] = None
+                st.success("🔄 Diseño restablecido al tema oscuro original.")
+                st.rerun()
+
+        # --- SUB-TAB 3: CATÁLOGO CON FILTRO DE BÚSQUEDA ---
         with tab_datos:
             st.subheader("📋 Tu Catálogo de Clientes Activos")
-            
             filtro_nombre = st.text_input("🔍 Buscar cliente por nombre en el catálogo (Filtro rápido):").strip()
             
             query_clientes = {"tenant_id": tenant_id}
@@ -431,7 +542,6 @@ else:
                 
                 df_clientes = pd.DataFrame(tabla_datos)
                 df_clientes.index = df_clientes.index + 1
-                
                 st.dataframe(df_clientes, use_container_width=True)
                 
                 st.markdown("---")
@@ -460,10 +570,10 @@ else:
             else:
                 st.info("💼 No se encontraron clientas con ese criterio de búsqueda.")
 
-        # --- SUB-TAB 3: ZONA DE BAJA INTELIGENTE ---
+        # --- SUB-TAB 4: ZONA DE ELIMINACIÓN ---
         with tab_eliminar:
             st.subheader("🚨 Remover Registro del Servidor")
-            st.write("Busca el nombre de la clienta para cargar su clave interna y procesar la baja de forma segura.")
+            st.write("Busca el nombre de la clienta para cargar su clave interna.")
             
             nombre_baja_buscar = st.text_input("💥 Escribe el nombre de la clienta a dar de baja:").strip()
             
@@ -478,17 +588,15 @@ else:
                     seleccion = st.selectbox("🎯 Selecciona la ficha exacta a eliminar:", list(opciones_clientes.keys()))
                     
                     cliente_a_borrar = opciones_clientes[seleccion]
-                    st.error(f"⚠️ ATENCIÓN: Estás a punto de borrar permanentemente el expediente de **{cliente_a_borrar['nombre']}** junto con todo su historial químico.")
+                    st.error(f"⚠️ ATENCIÓN: Estás a punto de borrar permanentemente el expediente de **{cliente_a_borrar['nombre']}**.")
                     
                     if st.button("🗑️ Confirmar Baja Permanente del Servidor"):
                         obj_id = cliente_a_borrar["_id"]
-                        
                         visitas_col.delete_many({"id_cliente": obj_id, "tenant_id": tenant_id})
                         clientes_col.delete_one({"_id": obj_id, "tenant_id": tenant_id})
-                        
-                        st.success(f"💥 ¡El expediente de **{cliente_a_borrar['nombre']}** ha sido removido del clúster exitosamente!")
+                        st.success(f"💥 ¡El expediente de **{cliente_a_borrar['nombre']}** ha sido removido con éxito!")
                         st.rerun()
                 else:
-                    st.warning("🕵️‍♂️ No se encontraron clientas que coincidan con ese nombre en tu local.")
+                    st.warning("🕵️‍♂️ No se encontraron clientas.")
             else:
-                st.info("💡 Introduce el nombre de la clienta en el cuadro de arriba para activar los controles de baja.")
+                st.info("💡 Introduce el nombre de la clienta en el cuadro de arriba.")
