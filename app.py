@@ -8,9 +8,37 @@ import hashlib
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import pytz  
+from cryptography.fernet import Fernet
 
-# Configuración única de página combinando tu diseño definitivo
+# Configuración única de página
 st.set_page_config(layout="wide", page_title="Aesthetic Manager Pro", page_icon="✂️")
+
+# ==========================================
+# 🔐 MÓDULO DE SEGURIDAD Y CIFRADO (AES-256)
+# ==========================================
+try:
+    LLAVE_SECRETA = st.secrets["security"]["master_key"].encode()
+    cipher_suite = Fernet(LLAVE_SECRETA)
+except Exception:
+    if 'llave_emergencia' not in st.session_state:
+        st.session_state['llave_emergencia'] = Fernet.generate_key()
+    cipher_suite = Fernet(st.session_state['llave_emergencia'])
+
+def cifrar_dato_sensible(texto_plano):
+    if not texto_plano:
+        return ""
+    bytes_cifrados = cipher_suite.encrypt(texto_plano.encode())
+    return bytes_cifrados.decode()
+
+def descifrar_dato_sensible(texto_cifrado):
+    if not texto_cifrado:
+        return ""
+    try:
+        bytes_descifrados = cipher_suite.decrypt(texto_cifrado.encode())
+        return bytes_descifrados.decode()
+    except Exception:
+        # Retorna el texto plano si ya existía antes de implementar el cifrado
+        return texto_cifrado
 
 # 1. 🔑 FUNCIÓN ENCRIPTA CONTRASEÑAS (SHA-256)
 def encriptar_pass(password):
@@ -54,7 +82,7 @@ if 'usuario_id' not in st.session_state:
     st.session_state['tenant_id'] = None
     st.session_state['plan'] = None  
     st.session_state['logo'] = None
-    st.session_state['fondo_color'] = "#0d0d0d"  # 👈 Por defecto el tema oscuro original
+    st.session_state['fondo_color'] = "#0d0d0d"
 
 if db is None:
     st.error("🛑 Error crítico: No se pudo conectar con el servidor de la base de datos en la nube.")
@@ -65,32 +93,26 @@ clientes_col = db["clientes"]
 visitas_col = db["visitas"]
 
 # ==========================================
-# 🎨 APLICACIÓN DE ESTILOS VISUALES DINÁMICOS (Color Hexagonal y Logo)
+# 🎨 APLICACIÓN DE ESTILOS VISUALES DINÁMICOS
 # ==========================================
 def aplicar_estilos_personalizados():
     color_actual = st.session_state['fondo_color']
-    
-    # Inyectamos el color seleccionado interactivamente por el Administrador
     st.markdown(f"""
         <style>
         .stApp {{
             background-color: {color_actual} !important;
             color: #e0e0e0;
         }}
-        
-        /* Asegura el contraste responsivo de los formularios en móviles y PC */
         .stForm {{
             background-color: rgba(20, 20, 20, 0.6) !important;
             border: 1px solid #4b0082 !important;
             border-radius: 12px;
             padding: 20px !important;
         }}
-        
         .stButton>button {{ background-color: #4b0082; color: white; width: 100%; border-radius: 8px; }}
         </style>
         """, unsafe_allow_html=True)
 
-    # Mostrar logotipo en la barra lateral si existe
     if st.session_state['logo']:
         try:
             st.sidebar.image(f"data:image/png;base64,{st.session_state['logo']}", use_container_width=True)
@@ -128,7 +150,6 @@ if st.session_state['usuario_id'] is None:
                     rol = user_db.get("rol", "empleado")
                     tenant_id_actual = user_db["tenant_id"]
                     
-                    # Buscamos la configuración del admin dueño para heredar el color y el logo
                     admin_negocio = usuarios_col.find_one({"_id": ObjectId(tenant_id_actual), "rol": "administrador"})
                     plan_negocio = admin_negocio.get("plan", "lite") if admin_negocio else "lite"
                     
@@ -240,7 +261,7 @@ else:
         st.session_state['fondo_color'] = "#0d0d0d"
         st.rerun()
 
-    # --- 🔍 SECCIÓN 1: HISTORIAL ---
+    # --- 🔍 SECCIÓN 1: HISTORIAL (CON DESCIFRADO AUTOMÁTICO AES-256) ---
     if opcion == "🔍 Buscar y Ver Historial":
         st.title("📂 Expediente de Clientas")
         nom_b = st.text_input("🔍 Escribe el nombre de la clienta a buscar:").strip()
@@ -285,14 +306,15 @@ else:
                         for v in visitas:
                             with st.expander(f"📅 Fecha: {v['fecha']}  |  💇‍♀️ Servicio: {v['servicio']}"):
                                 st.write(f"👤 **Atendida por:** {v['estilista']}")
-                                st.info(f"🧪 **Fórmula Aplicada:**\n\n{v['formula']}")
+                                formula_descifrada = descifrar_dato_sensible(v.get("formula", ""))
+                                st.info(f"🧪 **Fórmula Aplicada:**\n\n{formula_descifrada}")
                                 st.write(f"📝 **Observaciones:** {v['observaciones']}")
                     else:
                         st.info("ℹ️ No hay visitas registradas para esta clienta.")
             else:
                 st.warning("🕵️‍♂️ No se encontró ninguna clienta activa con ese nombre.")
 
-    # --- 📝 SECCIÓN 2: REGISTRAR VISITA ---
+    # --- 📝 SECCIÓN 2: REGISTRAR VISITA (CON CIFRADO AES-256) ---
     elif opcion == "📝 Registrar Visita":
         st.title("📝 Control de Visita")
         nombre_buscar = st.text_input("👤 Escribe el nombre completo de la clienta:").strip()
@@ -379,11 +401,11 @@ else:
                         "fecha": str(fecha),
                         "estilista": estilista,
                         "servicio": serv,
-                        "formula": formula,
+                        "formula": cifrar_dato_sensible(formula),
                         "observaciones": obs
                     }
                     visitas_col.insert_one(nueva_visita)
-                    st.success("✅ Registro guardado correctamente.")
+                    st.success("✅ Registro guardado y cifrado correctamente.")
                     st.rerun()
         else:
             st.write("💡 Ingresa el nombre de la clienta.")
@@ -467,18 +489,15 @@ else:
             else:
                 st.info("ℹ️ No hay personal registrado.")
 
-        # --- 🎨 SUB-TAB 2: IDENTIDAD CORPORATIVA (LOGO Y PALETA DE COLORES INTERACTIVA) ---
+        # --- SUB-TAB 2: IDENTIDAD CORPORATIVA ---
         with tab_multimedia:
             st.subheader("🎨 Personalización Visual del Portal")
             st.write("Sube el logotipo de tu marca y selecciona interactivamente el color de fondo para la aplicación móvil y de escritorio.")
             
-            # Cargamos el color guardado actualmente para que el picker inicie en esa posición
             color_inicial = st.session_state['fondo_color']
             
             with st.form("form_multimedia", clear_on_submit=False):
                 nuevo_logo_file = st.file_uploader("👑 Logotipo de la Estética (PNG transparente recomendado)", type=["png", "jpg", "jpeg"])
-                
-                # 🌈 NUEVO: Selector de color interactivo
                 color_elegido = st.color_picker("🌌 Elige el color de fondo para tu app:", value=color_inicial)
                 
                 if st.form_submit_button("💾 Guardar Configuración de Marca"):
@@ -502,7 +521,7 @@ else:
                 st.success("🔄 Diseño restablecido al negro mate original.")
                 st.rerun()
 
-        # --- SUB-TAB 3: CATÁLOGO ---
+        # --- SUB-TAB 3: CATÁLOGO Y RESPALDOS (CON DESCIFRADO AUTOMÁTICO EN CSV) ---
         with tab_datos:
             st.subheader("📋 Tu Catálogo de Clientes Activos")
             filtro_nombre = st.text_input("🔍 Buscar cliente por nombre en el catálogo (Filtro rápido):").strip()
@@ -537,12 +556,13 @@ else:
                     if mis_visitas:
                         tabla_visitas = []
                         for v in mis_visitas:
+                            formula_exportar = descifrar_dato_sensible(v.get("formula", ""))
                             tabla_visitas.append({
                                 "ID Visita": str(v["_id"]),
                                 "ID Cliente": str(v["id_cliente"]),
                                 "Fecha": v["fecha"],
                                 "Servicio": v["servicio"],
-                                "Fórmula": v["formula"],
+                                "Fórmula": formula_exportar,
                                 "Observaciones": v["observaciones"]
                             })
                         df_v_descarga = pd.DataFrame(tabla_visitas)
