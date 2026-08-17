@@ -3,3 +3,4 @@ Pillow
 pandas
 pymongo
 pytz
+cryptography
